@@ -12,7 +12,8 @@ A thermo-mechanical *digital twin* of a heated component: a C++ finite-element c
 - Steady-state solver, and time stepping with the theta scheme (`theta = 1`: backward Euler, `theta = 0.5`: Crank-Nicolson):
 
   `(M + theta dt K) T_new = (M - (1 - theta) dt K) T_old + dt F`
-- 38 unit tests (GoogleTest) and a program that prints the convergence tables below.
+- Failures are reported, not hidden: `CGSolver` exposes `has_converged()`, and the steady and transient solvers throw `std::runtime_error` when the linear solver does not converge (for example with NaN in the data).
+- 47 unit tests (GoogleTest) and a program that prints the convergence tables below.
 
 ## Build and test
 
@@ -90,7 +91,7 @@ apps/      convergence_study.cpp  (prints the tables above)
 ## Known limitations
 
 - Matrices are assembled as dense tables, and the system matrix of the time loop is rebuilt and converted to CSR at every step even though it does not change. This is fine in 1D (a few seconds for the whole study) and will be replaced by sparse assembly in 2D.
-- CG stops silently at the maximum number of iterations if it has not converged; reporting non-convergence is still to do.
+- There is no stability check for `theta < 0.5`. With a time step above the stability limit the temperatures grow at every step. The solver throws only when the growth produces NaN or infinity; otherwise it returns huge but finite numbers. The schemes used in the convergence study (`theta = 1` and `theta = 0.5`) are unconditionally stable.
 
 ## Roadmap
 
@@ -104,3 +105,5 @@ Planned, in this order:
 ## Author
 
 Vsevolod Ozmitel Volpato, (for my contacts see my main github page)
+
+note : la matrice del ciclo temporale viene ricostruita a ogni passo scrivilo
