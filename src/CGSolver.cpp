@@ -68,4 +68,6 @@ void CGSolver::solve( bool use_preconditioner )
         ++k;}
 
     iterations = k;
+
+    converged= (norm(r) <= tol * norm(b));
 }

@@ -23,6 +23,7 @@ class CGSolver
 
         unsigned iterations;
         bool preconditioned;
+        bool converged = false;
 
     public:
         CGSolver( const CSR &matrix, const DVector &rhs,const DVector &initial_guess, double tolerance, unsigned max_iterations);
@@ -33,6 +34,7 @@ class CGSolver
         DVector get_solution() const { return solution; }
         DVector get_residuals() const { return residuals; }
         unsigned get_iterations() const { return iterations; }
+        bool has_converged() const {return converged;}
 
         void print() const;
 
