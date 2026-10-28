@@ -13,6 +13,10 @@ add_library(twin_core
     src/Fem1D.cpp)
 target_include_directories(twin_core PUBLIC include)
 target_compile_options(twin_core PRIVATE -Wall -Wextra -Werror=return-type)
+# Programma che stampa le tabelle di convergenza (per il README).
+add_executable(convergence_study apps/convergence_study.cpp)
+target_link_libraries(convergence_study PRIVATE twin_core)
+target_compile_options(convergence_study PRIVATE -Wall -Wextra)
 
 # 2) GoogleTest: CMake downloads it for you the first time you configure.
 include(FetchContent)
