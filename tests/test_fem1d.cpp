@@ -493,3 +493,65 @@ TEST(Fem1d, TemporalConvergenceOfCrankNicolsonIsSecondOrder) {
         previous = current;
     }
 }
+
+// ---- Se CG non converge, i solutori lo dicono ----------------------------------------
+
+// Un NaN nei dati (sorgente o temperatura imposta) arriva fino al termine noto del sistema, e CG
+// non puo' convergere. Prima questi casi restituivano una temperatura qualsiasi (zeri) senza nessun
+// errore. Ora devono lanciare std::runtime_error: gli argomenti erano accettabili, e' il calcolo
+// che e' fallito (invalid_argument e' per gli argomenti sbagliati, che si vedono prima di calcolare).
+TEST(Fem1d, SteadyThrowsWhenTheLinearSolverCannotConverge) {
+    const double not_a_number = std::nan("");
+    std::vector<double> x = uniform_mesh(1.0, 10);
+
+    EXPECT_THROW(solve_steady(x, 1.0, not_a_number, 0.0, 0.0), std::runtime_error);   // sorgente NaN
+    EXPECT_THROW(solve_steady(x, 1.0, 5.0, not_a_number, 0.0), std::runtime_error);   // estremo sinistro NaN
+    EXPECT_THROW(solve_steady(x, 1.0, 5.0, 0.0, not_a_number), std::runtime_error);   // estremo destro NaN
+}
+
+// Lo stesso per l'evoluzione nel tempo. Basta UN passo con un NaN, in uno qualunque dei dati, e deve
+// lanciare: con n_steps = 1 il test controlla anche che il primo passo venga verificato.
+TEST(Fem1d, TransientThrowsWhenTheLinearSolverCannotConverge) {
+    const double not_a_number = std::nan("");
+    std::vector<double> x = uniform_mesh(1.0, 10);
+    DVector T0(11, 1.0);
+    DVector T0_with_nan = T0;
+    T0_with_nan[4] = not_a_number;
+
+    // argomenti: x, rho_c, k, q, T_left, T_right, T0, dt, n_steps, theta
+    EXPECT_THROW(solve_transient(x, 1.0, 1.0, not_a_number, 0.0, 0.0, T0, 0.01, 1, 1.0), std::runtime_error);
+    EXPECT_THROW(solve_transient(x, 1.0, 1.0, 0.0, not_a_number, 0.0, T0, 0.01, 1, 1.0), std::runtime_error);
+    EXPECT_THROW(solve_transient(x, 1.0, 1.0, 0.0, 0.0, not_a_number, T0, 0.01, 1, 1.0), std::runtime_error);
+    EXPECT_THROW(solve_transient(x, 1.0, 1.0, 0.0, 0.0, 0.0, T0_with_nan, 0.01, 1, 1.0), std::runtime_error);
+}
+
+// Il caso realistico: uno schema instabile. Con theta < 0.5 e dt sopra il limite di stabilita' le
+// temperature crescono a ogni passo, fino a uscire dalla scala dei double. Prima, in diversi di questi
+// calcoli, la funzione restituiva un vettore di NaN e inf come se niente fosse. Ora, per ogni
+// combinazione, succede una delle due cose: lancia std::runtime_error, oppure restituisce solo numeri
+// finiti. Il test NON dice che il risultato sia giusto (un calcolo instabile puo' dare numeri enormi
+// ma finiti): dice che NaN e inf non passano mai in silenzio.
+TEST(Fem1d, TransientNeverReturnsNonFiniteNumbersInSilence) {
+    const double pi = std::acos(-1.0);
+    for (double theta : {0.0, 0.3}) {
+        for (size_t N : {10u, 20u}) {
+            for (double dt : {0.1, 1.0, 5.0}) {
+                std::vector<double> x = uniform_mesh(1.0, N);
+                DVector T0(N + 1);
+                for (size_t i = 0; i <= N; ++i) {
+                    T0[i] = std::sin(pi * x[i]);
+                }
+                try {
+                    DVector T = solve_transient(x, 1.0, 1.0, 0.0, 0.0, 0.0, T0, dt, 400, theta);
+                    bool all_finite = true;
+                    for (double v : T) {
+                        all_finite = all_finite && std::isfinite(v);
+                    }
+                    EXPECT_TRUE(all_finite) << "theta = " << theta << ", N = " << N << ", dt = " << dt;
+                } catch (const std::runtime_error&) {
+                    // va bene: il calcolo e' fallito e lo dice
+                }
+            }
+        }
+    }
+}

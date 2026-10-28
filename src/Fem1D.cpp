@@ -4,6 +4,7 @@
 #include <vector>
 #include <cmath>
 #include <stdexcept>
+#include <string>
 
 const double pi = std::acos(-1.0);
 
@@ -76,6 +77,10 @@ DVector solve_steady(const std::vector<double>& x, double k, double q, double T_
 
     CG.solve(true);
 
+    if(!CG.has_converged()){
+        throw std::runtime_error("CG has not converged");
+    }
+
     return CG.get_solution();
 }
 
@@ -131,7 +136,9 @@ DVector solve_transient(const std::vector<double>& x, double rho_c, double k, do
         CSR A_CSR (A_2);
         CGSolver  CG (A_CSR, rhs, T,1e-12, static_cast<unsigned>(10 * n) );
         CG.solve(true);
-
+        if(!CG.has_converged()){
+            throw std::runtime_error("CG has not converged at step " + std::to_string(i));
+        }
         T = CG.get_solution();
     }
 
