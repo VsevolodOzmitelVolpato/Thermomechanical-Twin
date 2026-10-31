@@ -11,7 +11,7 @@
 static void expect_vector_near(const DVector& a, const DVector& b, double tol) {
     ASSERT_EQ(a.size(), b.size());
     for (size_t i = 0; i < a.size(); ++i) {
-        EXPECT_NEAR(a[i], b[i], tol) << "f[" << i << "]";
+        EXPECT_NEAR(a[i], b[i], tol) << "indice " << i;
     }
 }
 
@@ -73,4 +73,339 @@ TEST(Thermoelastic1d, ThermalLoadWrongInputsThrow) {
 
     EXPECT_THROW(assemble_thermal_load(x, 2.0, 0.5, {10.0, 20.0}, 10.0), std::invalid_argument);               // 2 valori
     EXPECT_THROW(assemble_thermal_load(x, 2.0, 0.5, {10.0, 20.0, 40.0, 50.0}, 10.0), std::invalid_argument);   // 4 valori
+}
+
+// ---- Spostamento della barra ---------------------------------------------------------
+
+// Lo stesso esempio a mano di prima: x = {0, 1, 3}, E = 2, alpha = 0.5, T_ref = 10, T = {10, 20, 40}.
+// Le forze sono f = {-5, -15, 20} e la matrice di rigidezza (E/h per ogni elemento) e'
+//     K = [[ 2, -2,  0],
+//          [-2,  3, -1],
+//          [ 0, -1,  1]]
+// L'estremo sinistro e' bloccato (u0 = 0). Restano due equazioni, le righe 1 e 2 di K u = f:
+//      3 u1 - u2 = -15
+//       -u1 + u2 =  20
+// Sommandole: 2 u1 = 5, quindi u1 = 2.5 e u2 = 22.5.
+// Controllo: ogni elemento si allunga di alpha dT_medio h, cioe' 0.5*5*1 = 2.5 e 0.5*20*2 = 20.
+// Se anche l'estremo destro e' bloccato (u2 = 0) resta una sola equazione: 3 u1 = -15, u1 = -5.
+TEST(Thermoelastic1d, ThermalExpansionMatchesHandComputation) {
+    std::vector<double> x = {0.0, 1.0, 3.0};
+    DVector T = {10.0, 20.0, 40.0};
+
+    DVector u_free = solve_thermal_expansion(x, 2.0, 0.5, T, 10.0, RightEnd::Free);
+    expect_vector_near(u_free, {0.0, 2.5, 22.5}, 1e-9);
+
+    DVector u_fixed = solve_thermal_expansion(x, 2.0, 0.5, T, 10.0, RightEnd::Fixed);
+    expect_vector_near(u_fixed, {0.0, -5.0, 0.0}, 1e-9);
+}
+
+// Barra lunga 1 m (10 elementi), scaldata in modo uniforme da 20 a 120 gradi, estremo destro libero.
+// Libera di muoversi, la barra si allunga di alpha dT L = 12e-6 * 100 * 1 = 1.2e-3 m (1.2 mm),
+// e il nodo a distanza x si e' spostato di alpha dT x. Il risultato non dipende da E (niente
+// ferma la barra, quindi niente forze): si prova con due moduli diversi, acciaio e alluminio.
+TEST(Thermoelastic1d, FreeBarElongatesByAlphaDeltaTTimesLength) {
+    const double alpha = 12e-6, T_ref = 20.0, T_hot = 120.0;
+    std::vector<double> x = uniform_mesh(1.0, 10);
+    DVector T(x.size(), T_hot);
+
+    for (double E : {200e9, 70e9}) {
+        DVector u = solve_thermal_expansion(x, E, alpha, T, T_ref, RightEnd::Free);
+        ASSERT_EQ(u.size(), x.size());
+        for (size_t i = 0; i < x.size(); ++i) {
+            EXPECT_NEAR(u[i], alpha * (T_hot - T_ref) * x[i], 1e-12) << "E = " << E << ", nodo " << i;
+        }
+        EXPECT_NEAR(u.back(), 1.2e-3, 1e-12) << "E = " << E;
+    }
+}
+
+// La stessa barra, ma bloccata anche a destra: le pareti la tengono ferma, quindi u = 0 in
+// ogni nodo. (La tensione, invece, non e' 0: la calcoliamo al passo 4c.)
+TEST(Thermoelastic1d, ClampedBarWithUniformHeatingDoesNotMove) {
+    std::vector<double> x = uniform_mesh(1.0, 10);
+    DVector T(x.size(), 120.0);
+
+    DVector u = solve_thermal_expansion(x, 200e9, 12e-6, T, 20.0, RightEnd::Fixed);
+
+    expect_vector_near(u, DVector(x.size(), 0.0), 1e-12);
+}
+
+// Temperatura lineare T(x) = 30 + 15 x su una barra lunga 2, con maglia NON uniforme
+// (x_i = L (i/N)^1.5). T_ref = 10, quindi dT(x) = 20 + 15 x. E = 3, alpha = 0.02.
+//  - Estremo destro libero: u(x) = alpha * integrale di dT = 0.02 (20 x + 7.5 x^2) = 0.4 x + 0.15 x^2.
+//  - Estremo destro bloccato: la tensione e' la stessa ovunque e u(L) = 0, e viene
+//    u(x) = 0.15 x (x - 2).
+// Con T lineare la regola del trapezio su ogni elemento e' esatta, quindi i valori nei nodi sono
+// esatti su qualunque maglia: la tolleranza e' stretta e un test rosso vuol dire un errore nel codice.
+TEST(Thermoelastic1d, LinearTemperatureOnAGradedMeshIsExactAtTheNodes) {
+    const size_t N = 30;
+    const double L = 2.0;
+    std::vector<double> x(N + 1);
+    DVector T(N + 1);
+    for (size_t i = 0; i <= N; ++i) {
+        x[i] = L * std::pow(static_cast<double>(i) / N, 1.5);
+        T[i] = 30.0 + 15.0 * x[i];
+    }
+
+    DVector u_free = solve_thermal_expansion(x, 3.0, 0.02, T, 10.0, RightEnd::Free);
+    DVector u_fixed = solve_thermal_expansion(x, 3.0, 0.02, T, 10.0, RightEnd::Fixed);
+
+    ASSERT_EQ(u_free.size(), N + 1);
+    ASSERT_EQ(u_fixed.size(), N + 1);
+    for (size_t i = 0; i <= N; ++i) {
+        EXPECT_NEAR(u_free[i], 0.4 * x[i] + 0.15 * x[i] * x[i], 1e-9) << "libero, nodo " << i;
+        EXPECT_NEAR(u_fixed[i], 0.15 * x[i] * (x[i] - 2.0), 1e-9) << "bloccato, nodo " << i;
+    }
+}
+
+// Barra libera, temperatura molto irregolare, 200 elementi di lunghezza diversa.
+// Con l'estremo destro libero niente ferma la barra e ogni elemento si dilata per conto suo:
+//     u[i] - u[i-1] = alpha * dT_medio * h      (per QUALUNQUE temperatura e QUALUNQUE maglia).
+// Quindi u si ricostruisce sommando gli allungamenti elemento per elemento, senza risolvere nulla.
+// Il test serve anche a controllare che CG sia stato fatto andare fino in fondo: con una
+// temperatura cosi' irregolare il residuo scende piano piano, e fermarsi troppo presto
+// (tolleranza troppo larga) da' un errore grande.
+TEST(Thermoelastic1d, FreeBarOnARoughTemperatureExpandsElementByElement) {
+    const size_t N = 200;
+    const double L = 2.0, E = 7.0e10, alpha = 1.5e-5, T_ref = 300.0;
+    std::vector<double> x(N + 1);
+    DVector T(N + 1);
+    for (size_t i = 0; i <= N; ++i) {
+        x[i] = L * std::pow(static_cast<double>(i) / N, 1.3);
+        T[i] = 300.0 + 80.0 * std::sin(1.7 * i) + 30.0 * std::cos(0.37 * i * i);
+    }
+
+    DVector u = solve_thermal_expansion(x, E, alpha, T, T_ref, RightEnd::Free);
+
+    ASSERT_EQ(u.size(), N + 1);
+    EXPECT_NEAR(u[0], 0.0, 1e-15);
+    double expected = 0.0;   // spostamento del nodo i = somma degli allungamenti dei primi i elementi
+    for (size_t i = 1; i <= N; ++i) {
+        expected += alpha * (x[i] - x[i - 1]) * ((T[i - 1] - T_ref) + (T[i] - T_ref)) / 2.0;
+        EXPECT_NEAR(u[i], expected, 1e-12) << "nodo " << i;
+    }
+}
+
+// Errore massimo sui nodi per T(x) = sin(pi x) su una barra lunga 1, con T_ref = 0, E = 3,
+// alpha = 2 e l'estremo destro libero. Soluzione esatta: u(x) = alpha (1 - cos(pi x)) / pi.
+static double sine_expansion_error(size_t N) {
+    const double pi = std::acos(-1.0);
+    std::vector<double> x = uniform_mesh(1.0, N);
+    DVector T(x.size());
+    for (size_t i = 0; i < x.size(); ++i) {
+        T[i] = std::sin(pi * x[i]);
+    }
+
+    DVector u = solve_thermal_expansion(x, 3.0, 2.0, T, 0.0, RightEnd::Free);
+
+    double max_err = 0.0;
+    for (size_t i = 0; i < x.size(); ++i) {
+        const double err = std::fabs(u[i] - 2.0 * (1.0 - std::cos(pi * x[i])) / pi);
+        if (err > max_err) {
+            max_err = err;
+        }
+    }
+    return max_err;
+}
+
+// Qui T non e' lineare, quindi i valori nei nodi non sono piu' esatti. Gli elementi lineari sono
+// del secondo ordine: dimezzando h l'errore deve diventare circa 4 volte piu' piccolo.
+TEST(Thermoelastic1d, ThermalExpansionIsSecondOrderForASineTemperature) {
+    const double e10 = sine_expansion_error(10);
+    const double e20 = sine_expansion_error(20);
+    const double e40 = sine_expansion_error(40);
+
+    EXPECT_GT(e10, 1e-3);   // l'errore c'e' (non e' zero per caso)
+    EXPECT_NEAR(observed_order(e10, e20, 2.0), 2.0, 0.1);
+    EXPECT_NEAR(observed_order(e20, e40, 2.0), 2.0, 0.1);
+}
+
+// Input sbagliati: devono lanciare std::invalid_argument.
+TEST(Thermoelastic1d, ThermalExpansionWrongInputsThrow) {
+    std::vector<double> x = {0.0, 1.0, 3.0};
+    DVector T = {10.0, 20.0, 40.0};
+
+    // T con 2 valori invece di 3
+    EXPECT_THROW(solve_thermal_expansion(x, 2.0, 0.5, DVector(2, 10.0), 10.0, RightEnd::Free), std::invalid_argument);
+    // una barra con un solo nodo non ha elementi
+    EXPECT_THROW(solve_thermal_expansion({0.0}, 2.0, 0.5, {10.0}, 10.0, RightEnd::Free), std::invalid_argument);
+    // E deve essere positivo: 0, negativo e NaN non vanno bene
+    EXPECT_THROW(solve_thermal_expansion(x, 0.0, 0.5, T, 10.0, RightEnd::Free), std::invalid_argument);
+    EXPECT_THROW(solve_thermal_expansion(x, -2.0, 0.5, T, 10.0, RightEnd::Free), std::invalid_argument);
+    EXPECT_THROW(solve_thermal_expansion(x, std::nan(""), 0.5, T, 10.0, RightEnd::Free), std::invalid_argument);
+}
+
+// Un NaN nella temperatura: il sistema non ha soluzione e CG non puo' convergere.
+// Deve dirlo con un'eccezione (std::runtime_error), non restituire spostamenti senza senso.
+TEST(Thermoelastic1d, ThermalExpansionThrowsWhenTheLinearSolverCannotConverge) {
+    std::vector<double> x = uniform_mesh(1.0, 10);
+    DVector T(x.size(), 100.0);
+    T[4] = std::nan("");
+
+    EXPECT_THROW(solve_thermal_expansion(x, 2.0, 0.5, T, 10.0, RightEnd::Free), std::runtime_error);
+    EXPECT_THROW(solve_thermal_expansion(x, 2.0, 0.5, T, 10.0, RightEnd::Fixed), std::runtime_error);
+}
+
+// ---- Tensione in ogni elemento ---------------------------------------------------------
+
+// Lo stesso esempio a mano di sempre: x = {0, 1, 3}, E = 2, alpha = 0.5, T_ref = 10, T = {10, 20, 40}.
+// Lunghezze degli elementi: {1, 2}. Scarti medi di temperatura: {5, 20}.
+// Deformazione dovuta al solo calore (alpha per lo scarto medio): {2.5, 10}.
+//     sigma = E * ( (u[e+1] - u[e]) / h  -  alpha dT_medio )
+//
+// a) barra libera, u = {0, 2.5, 22.5}: deformazione totale {2.5, 10}, uguale a quella del calore.
+//    La differenza e' 0, quindi sigma = {0, 0}: una barra libera di dilatarsi non ha tensioni.
+// b) barra bloccata, u = {0, -5, 0}: deformazione totale {-5, 2.5}, quindi
+//    sigma = 2 * (-5 - 2.5) = -15 e sigma = 2 * (2.5 - 10) = -15. Stessa tensione in tutta la barra,
+//    ed e' negativa: compressione.
+// c) barra che non si muove (u = 0): sigma = 2 * (0 - 2.5) = -5 e sigma = 2 * (0 - 10) = -20.
+// d) niente calore (T = T_ref) e u = {0, 1, 4}: deformazioni 1 e 1.5, quindi sigma = {2, 3}.
+//    Qui conta solo la parte meccanica.
+TEST(Thermoelastic1d, ElementStressMatchesHandComputation) {
+    std::vector<double> x = {0.0, 1.0, 3.0};
+    DVector T = {10.0, 20.0, 40.0};
+
+    expect_vector_near(element_stress(x, 2.0, 0.5, T, 10.0, {0.0, 2.5, 22.5}), {0.0, 0.0}, 1e-12);
+    expect_vector_near(element_stress(x, 2.0, 0.5, T, 10.0, {0.0, -5.0, 0.0}), {-15.0, -15.0}, 1e-12);
+    expect_vector_near(element_stress(x, 2.0, 0.5, T, 10.0, {0.0, 0.0, 0.0}), {-5.0, -20.0}, 1e-12);
+    expect_vector_near(element_stress(x, 2.0, 0.5, DVector(3, 10.0), 10.0, {0.0, 1.0, 4.0}), {2.0, 3.0}, 1e-12);
+}
+
+// Barra d'acciaio lunga 1 m (10 elementi), scaldata da 20 a 120 gradi. E = 200e9 Pa, alpha = 12e-6.
+// Bloccata a entrambi i capi non puo' dilatarsi: la parete la schiaccia di quanto il calore la
+// vorrebbe allungare, quindi la deformazione meccanica e' -alpha dT e in ogni elemento
+//     sigma = -E alpha dT = -200e9 * 12e-6 * 100 = -2.4e8 Pa   (240 MPa di compressione).
+// E' dello stesso ordine della tensione di snervamento di un acciaio da costruzione (circa 250 MPa):
+// per questo ponti e rotaie hanno i giunti di dilatazione.
+// Con l'estremo destro libero la barra si allunga senza fatica e la tensione e' 0.
+TEST(Thermoelastic1d, ClampedSteelBarIsCompressedByEAlphaDeltaT) {
+    const double E = 200e9, alpha = 12e-6, T_ref = 20.0, T_hot = 120.0;
+    const double scale = E * alpha * (T_hot - T_ref);   // 2.4e8 Pa
+    std::vector<double> x = uniform_mesh(1.0, 10);
+    DVector T(x.size(), T_hot);
+
+    DVector u_fixed = solve_thermal_expansion(x, E, alpha, T, T_ref, RightEnd::Fixed);
+    DVector s_fixed = element_stress(x, E, alpha, T, T_ref, u_fixed);
+    ASSERT_EQ(s_fixed.size(), 10u);
+    for (size_t e = 0; e < s_fixed.size(); ++e) {
+        EXPECT_NEAR(s_fixed[e], -scale, 1e-8 * scale) << "bloccata, elemento " << e;
+    }
+
+    DVector u_free = solve_thermal_expansion(x, E, alpha, T, T_ref, RightEnd::Free);
+    DVector s_free = element_stress(x, E, alpha, T, T_ref, u_free);
+    ASSERT_EQ(s_free.size(), 10u);
+    for (size_t e = 0; e < s_free.size(); ++e) {
+        EXPECT_NEAR(s_free[e], 0.0, 1e-8 * scale) << "libera, elemento " << e;
+    }
+}
+
+// Barra libera, con la stessa temperatura irregolare e la stessa maglia (200 elementi di lunghezza
+// diversa) del test FreeBarOnARoughTemperatureExpandsElementByElement. Ogni elemento si dilata per
+// conto suo, quindi la tensione e' 0 ovunque, per QUALUNQUE temperatura e QUALUNQUE maglia.
+// "Circa 0" qui vuol dire meno di 1e-8 volte E alpha 100, cioe' della tensione che avrebbe la stessa
+// barra se fosse bloccata e scaldata di 100 gradi.
+TEST(Thermoelastic1d, FreeBarHasNoStressOnARoughTemperature) {
+    const size_t N = 200;
+    const double L = 2.0, E = 7.0e10, alpha = 1.5e-5, T_ref = 300.0;
+    std::vector<double> x(N + 1);
+    DVector T(N + 1);
+    for (size_t i = 0; i <= N; ++i) {
+        x[i] = L * std::pow(static_cast<double>(i) / N, 1.3);
+        T[i] = 300.0 + 80.0 * std::sin(1.7 * i) + 30.0 * std::cos(0.37 * i * i);
+    }
+
+    DVector u = solve_thermal_expansion(x, E, alpha, T, T_ref, RightEnd::Free);
+    DVector sigma = element_stress(x, E, alpha, T, T_ref, u);
+
+    ASSERT_EQ(sigma.size(), N);
+    for (size_t e = 0; e < N; ++e) {
+        EXPECT_NEAR(sigma[e], 0.0, 1e-8 * E * alpha * 100.0) << "elemento " << e;
+    }
+}
+
+// Temperatura lineare T(x) = 30 + 15 x su una barra lunga 2, con la stessa maglia NON uniforme del
+// test LinearTemperatureOnAGradedMeshIsExactAtTheNodes, ma con l'estremo destro bloccato.
+// T_ref = 10, E = 3, alpha = 0.02, quindi lo scarto e' 20 + 15 x: il calore vorrebbe dilatare ogni
+// pezzetto in modo diverso. Eppure la tensione e' la stessa in ogni elemento, perche' le forze
+// devono fare equilibrio lungo la barra. Vale -E alpha per lo scarto medio sulla barra:
+//     -3 * 0.02 * (20 + 15 * 1) = -2.1.
+TEST(Thermoelastic1d, ClampedBarStressIsUniformForALinearTemperatureOnAGradedMesh) {
+    const size_t N = 30;
+    const double L = 2.0;
+    std::vector<double> x(N + 1);
+    DVector T(N + 1);
+    for (size_t i = 0; i <= N; ++i) {
+        x[i] = L * std::pow(static_cast<double>(i) / N, 1.5);
+        T[i] = 30.0 + 15.0 * x[i];
+    }
+
+    DVector u = solve_thermal_expansion(x, 3.0, 0.02, T, 10.0, RightEnd::Fixed);
+    DVector sigma = element_stress(x, 3.0, 0.02, T, 10.0, u);
+
+    ASSERT_EQ(sigma.size(), N);
+    for (size_t e = 0; e < N; ++e) {
+        EXPECT_NEAR(sigma[e], -2.1, 1e-8) << "elemento " << e;
+    }
+}
+
+// Errore massimo sulla tensione per T(x) = sin(pi x) su una barra lunga 1, con T_ref = 0, E = 3,
+// alpha = 2 e l'estremo destro bloccato. Tensione esatta: -E alpha per la media di sin(pi x) su
+// [0, 1], cioe' -3 * 2 * (2 / pi) = -12 / pi = -3.82.
+static double sine_stress_error(size_t N) {
+    const double pi = std::acos(-1.0);
+    std::vector<double> x = uniform_mesh(1.0, N);
+    DVector T(x.size());
+    for (size_t i = 0; i < x.size(); ++i) {
+        T[i] = std::sin(pi * x[i]);
+    }
+
+    DVector u = solve_thermal_expansion(x, 3.0, 2.0, T, 0.0, RightEnd::Fixed);
+    DVector sigma = element_stress(x, 3.0, 2.0, T, 0.0, u);
+
+    EXPECT_EQ(sigma.size(), N);
+    double max_err = 0.0;
+    for (double s : sigma) {
+        const double err = std::fabs(s + 12.0 / pi);
+        if (err > max_err) {
+            max_err = err;
+        }
+    }
+    return max_err;
+}
+
+// T non e' lineare, quindi la tensione calcolata non e' esatta: la media di T sulla barra viene
+// fatta con la regola del trapezio, che sbaglia di circa pi / (6 N^2). L'errore sulla tensione e'
+// circa pi / N^2: dimezzando h diventa 4 volte piu' piccolo (secondo ordine).
+TEST(Thermoelastic1d, ClampedBarStressIsSecondOrderForASineTemperature) {
+    const double e10 = sine_stress_error(10);
+    const double e20 = sine_stress_error(20);
+    const double e40 = sine_stress_error(40);
+
+    EXPECT_GT(e10, 1e-2);   // l'errore c'e' (circa 0.031): non e' zero per caso
+    EXPECT_NEAR(observed_order(e10, e20, 2.0), 2.0, 0.1);
+    EXPECT_NEAR(observed_order(e20, e40, 2.0), 2.0, 0.1);
+}
+
+// Una tensione per ogni elemento: con n nodi gli elementi sono n - 1.
+// Un solo elemento (lungo 2, E = 3, alpha = 5, scarto di temperatura 1) tenuto fermo (u = 0):
+// sigma = 3 * (0 - 5 * 1) = -15. Con meno di 2 nodi non ci sono elementi: il risultato e' un
+// vettore vuoto, senza errori e senza crash.
+TEST(Thermoelastic1d, ElementStressHasOneValuePerElement) {
+    DVector one = element_stress({0.0, 2.0}, 3.0, 5.0, {1.0, 1.0}, 0.0, {0.0, 0.0});
+    ASSERT_EQ(one.size(), 1u);
+    EXPECT_NEAR(one[0], -15.0, 1e-12);
+
+    EXPECT_TRUE(element_stress({0.0}, 3.0, 5.0, {1.0}, 0.0, {0.0}).empty());
+    EXPECT_TRUE(element_stress({}, 3.0, 5.0, {}, 0.0, {}).empty());
+}
+
+// Input sbagliati: T oppure u con un numero di valori diverso da quello dei nodi.
+TEST(Thermoelastic1d, ElementStressWrongInputsThrow) {
+    std::vector<double> x = {0.0, 1.0, 3.0};   // 3 nodi
+    DVector T = {10.0, 20.0, 40.0};
+    DVector u = {0.0, 2.5, 22.5};
+
+    EXPECT_THROW(element_stress(x, 2.0, 0.5, DVector(2, 10.0), 10.0, u), std::invalid_argument);          // T con 2 valori
+    EXPECT_THROW(element_stress(x, 2.0, 0.5, DVector(4, 10.0), 10.0, u), std::invalid_argument);          // T con 4 valori
+    EXPECT_THROW(element_stress(x, 2.0, 0.5, T, 10.0, {0.0, 2.5}), std::invalid_argument);                // u con 2 valori
+    EXPECT_THROW(element_stress(x, 2.0, 0.5, T, 10.0, {0.0, 2.5, 22.5, 30.0}), std::invalid_argument);    // u con 4 valori
 }
