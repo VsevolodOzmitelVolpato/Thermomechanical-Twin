@@ -42,5 +42,48 @@ DVector solve_thermal_expansion(const std::vector<double>& x, double E, double a
 // Lancia std::invalid_argument se T o u non hanno un valore per ogni nodo.
 DVector element_stress(const std::vector<double>& x, double E, double alpha, const DVector& T, double T_ref, const DVector& u);
 
+// ---- La catena completa: calore -> dilatazione -> tensione --------------------------
+
+// Tutti i dati di un problema termo-meccanico in un solo oggetto, ognuno col suo nome.
+// Passare 14 argomenti uno dopo l'altro (10 sono double) e' pericoloso: il compilatore non si
+// accorge se ne scambi due dello stesso tipo, come gli argomenti di CGSolver. Con i nomi no.
+// Si crea il problema "a zero" (ThermoMechanicalProblem p;) e si riempiono i campi che servono.
+struct ThermoMechanicalProblem {
+    std::vector<double> x;   // nodi della barra (crescenti)
+
+    // Calore: rho_c dT/dt - k T'' = q, estremi fissati (come in solve_transient).
+    double rho_c = 0.0;
+    double k = 0.0;
+    double q = 0.0;
+    double T_left = 0.0;
+    double T_right = 0.0;
+    DVector T0;              // temperatura iniziale, un valore per nodo
+
+    // Tempo: n_steps passi di ampiezza dt con lo schema theta (theta = 1: Eulero all'indietro).
+    double dt = 0.0;
+    std::size_t n_steps = 0;
+    double theta = 1.0;
+
+    // Meccanica (come in solve_thermal_expansion). L'estremo sinistro e' sempre bloccato.
+    double E = 0.0;
+    double alpha = 0.0;
+    double T_ref = 0.0;
+    RightEnd right_end = RightEnd::Free;
+};
+
+// Il risultato, al tempo finale t = n_steps * dt.
+struct ThermoMechanicalResult {
+    DVector T;       // temperatura in ogni nodo
+    DVector u;       // spostamento in ogni nodo
+    DVector sigma;   // tensione in ogni elemento (un numero in meno dei nodi)
+};
+
+// Risolve il problema a catena, in tre passi:
+//   1. T     = solve_transient(...)           la temperatura al tempo finale
+//   2. u     = solve_thermal_expansion(...)   lo spostamento causato da quella temperatura
+//   3. sigma = element_stress(...)            la tensione che ne risulta
+// L'accoppiamento e' a senso unico: il calore muove la barra, la barra non scalda niente.
+// Le eccezioni dei tre passi (std::invalid_argument, std::runtime_error) non vengono fermate.
+ThermoMechanicalResult solve_thermomechanical(const ThermoMechanicalProblem& problem);
 
 #endif

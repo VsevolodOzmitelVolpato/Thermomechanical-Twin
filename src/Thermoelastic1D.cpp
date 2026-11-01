@@ -1,6 +1,7 @@
 #include <stdexcept>
 #include "Thermoelastic1D.h"
 #include "CGSolver.h"
+#include "Fem1D.h"
 
 DVector assemble_thermal_load(const std::vector<double>& x, double E, double alpha, const DVector& T, double T_ref) {
     if ( T.size() != x.size()){
@@ -53,7 +54,7 @@ DVector element_stress(const std::vector<double>& x, double E, double alpha, con
     }
     
     DVector sigma;
-    
+
     for(size_t i {1}; i < x.size(); ++i){
         double h = x[i] - x[i - 1];
         double tot_deformation = (u[i]- u[i - 1])/h;
@@ -62,4 +63,17 @@ DVector element_stress(const std::vector<double>& x, double E, double alpha, con
     }
 
     return sigma;
+}
+
+ThermoMechanicalResult solve_thermomechanical(const ThermoMechanicalProblem &problem) {
+    ThermoMechanicalResult results;
+    
+    results.T = solve_transient(problem.x, problem.rho_c, problem.k, problem.q, problem.T_left, 
+                               problem.T_right, problem.T0, problem.dt, problem.n_steps, problem.theta);
+    
+    results.u = solve_thermal_expansion(problem.x, problem.E, problem.alpha, results.T, problem.T_ref, problem.right_end);
+
+    results.sigma = element_stress(problem.x, problem.E, problem.alpha, results.T, problem.T_ref, results.u);
+
+    return results;
 }

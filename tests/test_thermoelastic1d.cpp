@@ -409,3 +409,229 @@ TEST(Thermoelastic1d, ElementStressWrongInputsThrow) {
     EXPECT_THROW(element_stress(x, 2.0, 0.5, T, 10.0, {0.0, 2.5}), std::invalid_argument);                // u con 2 valori
     EXPECT_THROW(element_stress(x, 2.0, 0.5, T, 10.0, {0.0, 2.5, 22.5, 30.0}), std::invalid_argument);    // u con 4 valori
 }
+
+// ---- La catena completa: calore -> dilatazione -> tensione -----------------------------
+
+// Esempio a mano, tutto in un colpo. Barra lunga 2 con 2 elementi (x = {0, 1, 2}, h = 1).
+//
+// CALORE: un passo di Eulero all'indietro (theta = 1), dt = 0.5, rho_c = 3, k = 1.5, q = 2.
+// Estremi fissati a 6 e 14, temperatura iniziale T0 = {6, 6, 14}. Le matrici sono
+//     M = rho_c/6 * [[2,1,0],[1,4,1],[0,1,2]] = [[1, 0.5, 0], [0.5, 2, 0.5], [0, 0.5, 1]]
+//     K = k * [[1,-1,0],[-1,2,-1],[0,-1,1]]   = [[1.5, -1.5, 0], [-1.5, 3, -1.5], [0, -1.5, 1.5]]
+// e il calore della sorgente e' F = q h/2 * (1, 2, 1) = (1, 2, 1). Il sistema (M + dt K) T = M T0 + dt F
+// ha la riga centrale   -0.25 T_0 + 3.5 T_1 - 0.25 T_2 = 0.5*6 + 2*6 + 0.5*14 + 0.5*2 = 23.
+// Con T_0 = 6 e T_2 = 14 (estremi fissati) resta 3.5 T_1 = 23 + 1.5 + 3.5 = 28, quindi T_1 = 8.
+//     T = {6, 8, 14}
+//
+// MECCANICA: T_ref = 5, E = 4, alpha = 0.25. Scarti dT = {1, 3, 9}, scarti medi {2, 6}.
+//  - estremo destro libero: ogni elemento si allunga di alpha dT_medio h = 0.5 e 1.5,
+//    quindi u = {0, 0.5, 2}, e la tensione e' 0.
+//  - estremo destro bloccato: le forze sono E alpha dT_medio = {2, 6}, quindi f = {-2, 2-6, 6}.
+//    Con u_0 = u_2 = 0 l'equazione del nodo 1 e' E * 2 u_1 = -4, cioe' u_1 = -0.5.
+//    Deformazioni totali -0.5 e +0.5, termiche 0.5 e 1.5: sigma = 4 (-0.5-0.5) = -4 e 4 (0.5-1.5) = -4.
+static ThermoMechanicalProblem hand_problem() {
+    ThermoMechanicalProblem p;
+    p.x = uniform_mesh(2.0, 2);
+    p.rho_c = 3.0;
+    p.k = 1.5;
+    p.q = 2.0;
+    p.T_left = 6.0;
+    p.T_right = 14.0;
+    p.T0 = {6.0, 6.0, 14.0};
+    p.dt = 0.5;
+    p.n_steps = 1;
+    p.theta = 1.0;
+    p.E = 4.0;
+    p.alpha = 0.25;
+    p.T_ref = 5.0;
+    return p;
+}
+
+TEST(Thermoelastic1d, ThermoMechanicalHandComputation) {
+    ThermoMechanicalProblem p = hand_problem();
+
+    p.right_end = RightEnd::Free;
+    ThermoMechanicalResult free_bar = solve_thermomechanical(p);
+    expect_vector_near(free_bar.T, {6.0, 8.0, 14.0}, 1e-9);
+    expect_vector_near(free_bar.u, {0.0, 0.5, 2.0}, 1e-9);
+    expect_vector_near(free_bar.sigma, {0.0, 0.0}, 1e-9);
+
+    p.right_end = RightEnd::Fixed;
+    ThermoMechanicalResult clamped_bar = solve_thermomechanical(p);
+    expect_vector_near(clamped_bar.T, {6.0, 8.0, 14.0}, 1e-9);
+    expect_vector_near(clamped_bar.u, {0.0, -0.5, 0.0}, 1e-9);
+    expect_vector_near(clamped_bar.sigma, {-4.0, -4.0}, 1e-9);
+}
+
+// La catena deve dare esattamente quello che danno i tre passi fatti a mano, uno dopo l'altro.
+// Qui ogni dato ha un valore diverso e "scomodo" (nessuno uguale a un altro), la maglia non e'
+// uniforme e theta = 0.6: se la funzione scambia due argomenti dello stesso tipo (rho_c e k,
+// T_left e T_right, E e alpha...) oppure passa la temperatura iniziale al posto di quella
+// finale, i numeri cambiano e il test se ne accorge.
+TEST(Thermoelastic1d, ThermoMechanicalEqualsTheThreeStepsOneByOne) {
+    const size_t N = 12;
+    ThermoMechanicalProblem p;
+    p.x.resize(N + 1);
+    p.T0.resize(N + 1);
+    for (size_t i = 0; i <= N; ++i) {
+        p.x[i] = 1.7 * std::pow(static_cast<double>(i) / N, 1.2);
+        p.T0[i] = 20.0 + 3.0 * std::sin(2.0 * i);
+    }
+    p.rho_c = 1.7;
+    p.k = 2.3;
+    p.q = 4.1;
+    p.T_left = 12.5;
+    p.T_right = 31.5;
+    p.T0.front() = p.T_left;
+    p.T0.back() = p.T_right;
+    p.dt = 0.07;
+    p.n_steps = 9;
+    p.theta = 0.6;
+    p.E = 5.3;
+    p.alpha = 0.013;
+    p.T_ref = 9.1;
+
+    for (RightEnd end : {RightEnd::Free, RightEnd::Fixed}) {
+        p.right_end = end;
+        ThermoMechanicalResult r = solve_thermomechanical(p);
+
+        DVector T = solve_transient(p.x, p.rho_c, p.k, p.q, p.T_left, p.T_right, p.T0, p.dt, p.n_steps, p.theta);
+        DVector u = solve_thermal_expansion(p.x, p.E, p.alpha, T, p.T_ref, end);
+        DVector sigma = element_stress(p.x, p.E, p.alpha, T, p.T_ref, u);
+
+        expect_vector_near(r.T, T, 1e-12);
+        expect_vector_near(r.u, u, 1e-12);
+        expect_vector_near(r.sigma, sigma, 1e-12);
+    }
+}
+
+// Il problema "seno che decade", gia' usato per la temperatura: barra lunga 1, rho_c = 1, k = 1,
+// nessuna sorgente, estremi a 0, T0 = sin(pi x), quindi T(x, t) = exp(-pi^2 t) sin(pi x).
+// Con T_ref = 0, E = 3 e alpha = 2 la catena ha due risultati esatti, che si ottengono integrando
+// T lungo la barra (l'integrale di sin(pi x) tra 0 e 1 vale 2/pi):
+//  - estremo destro libero: la punta si sposta di alpha * integrale = 2 alpha exp(-pi^2 t) / pi;
+//  - estremo destro bloccato: la tensione e' la stessa ovunque e vale
+//    -E alpha * (media di T) = -2 E alpha exp(-pi^2 t) / pi.
+static ThermoMechanicalProblem decaying_sine_problem(size_t N, double dt, size_t n_steps, double theta,
+                                                     RightEnd right_end) {
+    const double pi = std::acos(-1.0);
+    ThermoMechanicalProblem p;
+    p.x = uniform_mesh(1.0, N);
+    p.T0.resize(p.x.size());
+    for (size_t i = 0; i < p.x.size(); ++i) {
+        p.T0[i] = std::sin(pi * p.x[i]);
+    }
+    p.rho_c = 1.0;
+    p.k = 1.0;
+    p.q = 0.0;
+    p.T_left = 0.0;
+    p.T_right = 0.0;
+    p.dt = dt;
+    p.n_steps = n_steps;
+    p.theta = theta;
+    p.E = 3.0;
+    p.alpha = 2.0;
+    p.T_ref = 0.0;
+    p.right_end = right_end;
+    return p;
+}
+
+// Errore (in valore assoluto) dello spostamento della punta, con l'estremo destro libero.
+static double tip_error(size_t N, double dt, size_t n_steps, double theta) {
+    const double pi = std::acos(-1.0);
+    ThermoMechanicalResult r = solve_thermomechanical(decaying_sine_problem(N, dt, n_steps, theta, RightEnd::Free));
+    EXPECT_EQ(r.u.size(), N + 1);
+    if (r.u.size() != N + 1) {
+        return 1.0;   // senza spostamenti non c'e' niente da confrontare (il test e' gia' rosso)
+    }
+    const double t = n_steps * dt;
+    return std::fabs(r.u.back() - 2.0 * 2.0 * std::exp(-pi * pi * t) / pi);
+}
+
+// A t = 0.1 (Crank-Nicolson, 100 elementi, 100 passi) la catena deve dare i due risultati esatti:
+//  - barra libera: la punta si sposta di 2 alpha exp(-pi^2 t) / pi = 0.4745. Il nodo sinistro non si
+//    muove, e la tensione e' 0 in ogni elemento (calcolata con la STESSA temperatura finale da cui
+//    viene lo spostamento: con la temperatura iniziale non verrebbe 0);
+//  - barra bloccata: la tensione vale -2 E alpha exp(-pi^2 t) / pi = -1.4236 in ogni elemento.
+// L'errore di discretizzazione e' circa 1.7e-4 in termini relativi, quindi la tolleranza e' 5e-4.
+TEST(Thermoelastic1d, ThermoMechanicalFollowsTheDecayingSine) {
+    const double pi = std::acos(-1.0);
+    const size_t N = 100, n_steps = 100;
+    const double dt = 0.001, t = n_steps * dt;
+
+    ThermoMechanicalResult free_bar = solve_thermomechanical(decaying_sine_problem(N, dt, n_steps, 0.5, RightEnd::Free));
+    ASSERT_EQ(free_bar.u.size(), N + 1);
+    ASSERT_EQ(free_bar.sigma.size(), N);
+    const double exact_tip = 2.0 * 2.0 * std::exp(-pi * pi * t) / pi;
+    EXPECT_NEAR(free_bar.u.front(), 0.0, 1e-15);
+    EXPECT_NEAR(free_bar.u.back(), exact_tip, 5e-4 * exact_tip);
+    for (size_t e = 0; e < N; ++e) {
+        EXPECT_NEAR(free_bar.sigma[e], 0.0, 1e-9) << "libera, elemento " << e;
+    }
+
+    ThermoMechanicalResult clamped_bar = solve_thermomechanical(decaying_sine_problem(N, dt, n_steps, 0.5, RightEnd::Fixed));
+    ASSERT_EQ(clamped_bar.sigma.size(), N);
+    const double exact_stress = -2.0 * 3.0 * 2.0 * std::exp(-pi * pi * t) / pi;
+    for (size_t e = 0; e < N; ++e) {
+        EXPECT_NEAR(clamped_bar.sigma[e], exact_stress, 5e-4 * std::fabs(exact_stress)) << "bloccata, elemento " << e;
+    }
+}
+
+// ORDINI. Lo spostamento e la tensione derivano dalla temperatura: ne ereditano l'ordine?
+// Crank-Nicolson, N = 10, 20, 40, 80 elementi e N passi fino a t = 0.1 (dt = 0.1 / N: quando
+// dimezzi h dimezzi anche dt). L'errore nello spazio e quello nel tempo sono entrambi del secondo
+// ordine, quindi l'errore sulla punta deve diventare 4 volte piu' piccolo a ogni raddoppio.
+TEST(Thermoelastic1d, ThermoMechanicalIsSecondOrderForCrankNicolson) {
+    double previous = tip_error(10, 0.1 / 10, 10, 0.5);
+    for (size_t N : {20, 40, 80}) {
+        const double current = tip_error(N, 0.1 / N, N, 0.5);
+        EXPECT_NEAR(observed_order(previous, current, 2.0), 2.0, 0.05) << "N = " << N / 2 << " -> " << N;
+        previous = current;
+    }
+}
+
+// Eulero all'indietro (theta = 1): primo ordine nel tempo. Mesh molto fine (N = 400), cosi' l'errore
+// di mesh e' trascurabile; t = 0.1 con 5, 10, 20 passi.
+TEST(Thermoelastic1d, ThermoMechanicalIsFirstOrderInTimeForBackwardEuler) {
+    const size_t N = 400;
+    double previous = tip_error(N, 0.1 / 5, 5, 1.0);
+    for (size_t steps : {10, 20}) {
+        const double current = tip_error(N, 0.1 / steps, steps, 1.0);
+        EXPECT_NEAR(observed_order(previous, current, 2.0), 1.0, 0.1) << steps / 2 << " -> " << steps << " passi";
+        previous = current;
+    }
+}
+
+// Input sbagliati: gli errori dei tre passi non devono sparire. Si parte dal problema a mano
+// (valido) e si rovina un dato alla volta.
+TEST(Thermoelastic1d, ThermoMechanicalWrongInputsThrow) {
+    const ThermoMechanicalProblem good = hand_problem();
+    EXPECT_NO_THROW(solve_thermomechanical(good));
+
+    ThermoMechanicalProblem p = good;   // un T0 con un valore in meno (dal calore)
+    p.T0.pop_back();
+    EXPECT_THROW(solve_thermomechanical(p), std::invalid_argument);
+
+    p = good;                           // dt = 0 (dal calore)
+    p.dt = 0.0;
+    EXPECT_THROW(solve_thermomechanical(p), std::invalid_argument);
+
+    p = good;                           // theta fuori da [0, 1] (dal calore)
+    p.theta = 1.5;
+    EXPECT_THROW(solve_thermomechanical(p), std::invalid_argument);
+
+    p = good;                           // E = 0 e E = NaN (dalla meccanica)
+    p.E = 0.0;
+    EXPECT_THROW(solve_thermomechanical(p), std::invalid_argument);
+    p.E = std::nan("");
+    EXPECT_THROW(solve_thermomechanical(p), std::invalid_argument);
+
+    p = good;                           // una barra con un solo nodo non ha elementi (dalla meccanica)
+    p.x = {0.0};
+    p.T0 = {6.0};
+    EXPECT_THROW(solve_thermomechanical(p), std::invalid_argument);
+
+    p = good;                           // un NaN nei dati: CG non converge (dal calore)
+    p.T0[1] = std::nan("");
+    EXPECT_THROW(solve_thermomechanical(p), std::runtime_error);
+}
