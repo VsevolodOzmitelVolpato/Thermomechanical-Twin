@@ -1,3 +1,6 @@
+#ifndef FEM2D_H
+#define FEM2D_H
+
 #include <array>
 #include <cstddef>
 #include "Mesh2D.h"
@@ -10,3 +13,5 @@ Matrix3 element_stiffness(const Mesh2D &M, size_t e, double k);
 Matrix3 element_mass(const Mesh2D &M, size_t e, double rho_c);
 
 Vector3 element_load(const Mesh2D &M, size_t e, double q);
+
+#endif
