@@ -33,3 +33,36 @@ std::vector<Triplet> dirichlet_matrix_triplets_2d(std::size_t n, const std::vect
 
     return tvect;
 }
+
+DVector dirichlet_rhs_2d(const CSR &csr, const DVector &f, const std::vector<std::size_t> &fixed_nodes, const std::vector<double> &values){
+    if(f.size() != csr.size()){
+        throw std::invalid_argument("the vector and the CSR matrix have different size");}
+
+    
+    if(fixed_nodes.size() != values.size()){
+        throw std::invalid_argument("the fixed nodes and the values have different size");}
+
+    size_t n = f.size();
+    DVector g_hat(n, 0.0);
+    std::vector<bool> is_fixed(n, false);
+
+    for(size_t q{0}; q < fixed_nodes.size(); ++q){
+        std::size_t d = fixed_nodes[q];
+        if(d >= n){
+            throw std::invalid_argument("one of the fixed nodes is invalid");}
+        
+        if(is_fixed[d]){
+            throw std::invalid_argument("one or more nodes are repeated");}
+
+        is_fixed[d] = true;
+        g_hat[d] = values[q];
+    }
+
+    DVector b = f - csr * g_hat;
+
+    for(size_t q{0}; q < fixed_nodes.size(); ++q){
+        b[fixed_nodes[q]] = values[q];}
+
+    return b;
+    
+}
