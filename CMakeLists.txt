@@ -11,7 +11,12 @@ add_library(twin_core
     src/JacobiPreconditioner.cpp
     src/CGSolver.cpp
     src/Fem1D.cpp
-    src/Thermoelastic1D.cpp)
+    src/Thermoelastic1D.cpp
+    src/Mesh2D.cpp
+    src/Fem2D.cpp
+    src/Triplets.cpp
+    src/Assembly2D.cpp
+    src/Dirichlet2D.cpp)
 target_include_directories(twin_core PUBLIC include)
 target_compile_options(twin_core PRIVATE -Wall -Wextra -Werror=return-type)
 # Programma che stampa le tabelle di convergenza (per il README).
@@ -32,7 +37,12 @@ add_executable(unit_tests
     tests/test_csr.cpp
     tests/test_cg.cpp
     tests/test_fem1d.cpp
-    tests/test_thermoelastic1d.cpp)
+    tests/test_thermoelastic1d.cpp
+    tests/test_mesh2d.cpp
+    tests/test_fem2d.cpp
+    tests/test_triplets.cpp
+    tests/test_assembly2d.cpp
+    tests/test_dirichlet2d.cpp)
 target_link_libraries(unit_tests PRIVATE twin_core GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(unit_tests)
