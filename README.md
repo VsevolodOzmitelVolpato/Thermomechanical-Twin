@@ -187,3 +187,5 @@ Planned, in this order:
 Vsevolod Ozmitel Volpato, (for my contacts see my main github page)
 
 note : la matrice del ciclo temporale viene ricostruita a ogni passo scrivilo
+#   T h e r m o - M e c h a n i c a l - D i g i t a l - T w i n - C - F E M - S o l v e r - i n - p r o g r e s s -  
+ 
