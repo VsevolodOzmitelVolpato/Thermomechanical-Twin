@@ -7,13 +7,11 @@
 
 CSR assemble_stiffness_2d(const Mesh2D &M, double k){
     std::vector<Triplet> tvec = stiffness_triplets_2d(M, k);
-
     return csr_from_triplets(M.num_nodes(), tvec);
 }
 
 CSR assemble_mass_2d(const Mesh2D &M, double rho_c){
     std::vector<Triplet> tvec = mass_triplets_2d(M, rho_c);
-
     return csr_from_triplets(M.num_nodes(), tvec);
 }
 
@@ -34,6 +32,7 @@ std::vector<double> assemble_load_2d(const Mesh2D &M, double q){
 }
 
 namespace{
+
     std::vector<Triplet> matrix_triplets(const Mesh2D &M, Matrix3 (*element_matrix)(const Mesh2D&, std::size_t, double), double coefficient){
     std::vector<Triplet> tvec;
     tvec.reserve(9 * M.num_triangles());
@@ -48,9 +47,8 @@ namespace{
                 tvec.push_back(t);}}
     }
     
-    return tvec;
-
-    }
+    return tvec;}
+    
 }
 
 std::vector<Triplet> stiffness_triplets_2d(const Mesh2D &M, double k){
@@ -59,4 +57,17 @@ std::vector<Triplet> stiffness_triplets_2d(const Mesh2D &M, double k){
 
 std::vector<Triplet> mass_triplets_2d(const Mesh2D &M, double rho_c){
     return matrix_triplets(M, element_mass, rho_c);
+}
+
+std::vector<double> assemble_load_2d(const Mesh2D &M, const std::function<double(double, double)> &q){
+    std::vector<double> f(M.num_nodes(), 0.0);
+
+    for(std::size_t e {0}; e < M.num_triangles(); ++e){
+        Triangle t = M.triangle(e);
+        Vector3 fe = element_load(M, e, q);
+
+        for(std::size_t i {0}; i < 3; ++i){
+            f[t[i]] += fe[i];}
+    }
+    return f;
 }

@@ -44,7 +44,8 @@ add_executable(unit_tests
     tests/test_triplets.cpp
     tests/test_assembly2d.cpp
     tests/test_dirichlet2d.cpp
-    tests/test_solver2d.cpp)
+    tests/test_solver2d.cpp
+    tests/test_load2d.cpp)
 target_link_libraries(unit_tests PRIVATE twin_core GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(unit_tests)

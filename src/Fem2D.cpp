@@ -1,4 +1,5 @@
 #include "Fem2D.h"
+#include "Mesh2D.h"
 
 Matrix3 element_stiffness(const Mesh2D &M, size_t e, double k){
     Triangle t = M.triangle(e);
@@ -47,4 +48,26 @@ Vector3 element_load(const Mesh2D &M, size_t e, double q){
     vect.fill(q * area / 3.0);
 
     return vect;
+}
+
+Vector3 element_load(const Mesh2D &M, std::size_t e, const std::function<double(double, double)> &q){
+    Triangle t = M.triangle(e);
+    double area = M.area(e);
+
+    std::array<double, 3> q_mid{};
+    Vector3 f{};
+
+    for(std::size_t i {0}; i < 3; ++i){
+        std::size_t a = t[i];
+        std::size_t b = t[(i + 1) % 3];
+
+        double x = (M.x(a) + M.x(b)) * 0.5;
+        double y = (M.y(a) + M.y(b)) * 0.5;
+
+        q_mid[i] = q(x, y);}
+
+    for(std::size_t i {0}; i < 3; ++i){
+        f[i] = area / 6.0 * (q_mid[i] + q_mid[(i + 2) % 3]);}
+
+    return f;
 }
