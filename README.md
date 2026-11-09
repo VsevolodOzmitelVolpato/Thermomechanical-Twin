@@ -149,6 +149,21 @@ The tables report the absolute error of the tip displacement (free bar) and the 
 |    20 | 5.00e-03 |  9.63e-05 |  1.99 |     2.89e-04 |
 |    40 | 2.50e-03 |  2.50e-05 |  1.95 |     7.49e-05 |
 
+### 2D steady heat conduction: manufactured solution
+
+Unit square, T = 0 on the whole boundary, source q = 2 pi^2 k sin(pi x) sin(pi y), so the exact solution is T = sin(pi x) sin(pi y) for any k. Linear triangles on an n x n grid of cells (h = 1 / n), midpoint-rule load, conjugate-gradient solver. The error is the L2 norm of the difference between the computed temperatures and the exact ones at the nodes.
+
+|     n |        h | L2 error | order |
+|------:|---------:|---------:|------:|
+|     4 | 2.50e-01 | 2.34e-02 |     - |
+|     8 | 1.25e-01 | 6.34e-03 |  1.89 |
+|    16 | 6.25e-02 | 1.62e-03 |  1.97 |
+|    32 | 3.12e-02 | 4.08e-04 |  1.99 |
+|    64 | 1.56e-02 | 1.02e-04 |  2.00 |
+|   128 | 7.81e-03 | 2.55e-05 |  2.00 |
+
+The observed order tends to 2, as expected for linear elements.
+
 **Reading the tables.**
 - Displacement and stress inherit the orders of the temperature they come from: second order in space, first order in time for backward Euler (0.94, 0.97, 0.99, as above) and second order in time for Crank-Nicolson. The 1.95 in the last row is again the mesh error showing next to a very small time error (with `N = 1600` the three orders are 2.00, 2.00 and 1.99).
 - The stress error is `E / L = 3` times the tip error in every row (up to the printed digits). In the discrete problem, the equilibrium of the clamped bar forces a uniform stress equal to `-(E / L)` times the tip displacement of the free bar. The two columns come from two different solves, free and clamped, so the constant ratio is a free consistency check of the mechanics.
@@ -187,5 +202,6 @@ Planned, in this order:
 Vsevolod Ozmitel Volpato, (for my contacts see my main github page)
 
 note : la matrice del ciclo temporale viene ricostruita a ogni passo scrivilo
-#   T h e r m o - M e c h a n i c a l - D i g i t a l - T w i n - C - F E M - S o l v e r - i n - p r o g r e s s -  
+#   T h e r m o - M e c h a n i c a l - D i g i t a l - T w i n - C - F E M - S o l v e r - i n - p r o g r e s s - 
+ 
  

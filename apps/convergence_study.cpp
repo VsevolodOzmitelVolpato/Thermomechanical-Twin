@@ -2,6 +2,7 @@
 #include <iostream>
 #include "Fem1D.h"
 #include "Thermoelastic1D.h"
+#include "Verification2D.h"
 #include <cmath>
 using std::cout;
 using std::endl;
@@ -163,5 +164,26 @@ int main() {
         }
     }
 
+        cout << endl;
+    cout << "### 2D plate: manufactured solution sin(pi x) sin(pi y) (k = 1)" << endl << endl;
+    cout << "|     n |        h | L2 error | order |" << endl;
+    cout << "|------:|---------:|---------:|------:|" << endl;
+
+    size_t cells[6] = {4, 8, 16, 32, 64, 128};
+    previous_error = 0.0;
+    for (const auto &i : cells) {
+        double h = 1.0 / i;
+        double error = manufactured_sine_error_2d(i, 1.0);
+
+        cout << "| " << std::setw(5) << i << " | " << std::scientific << std::setprecision(2) << h << " | " << error << " | ";
+        if (i == 4) {
+            cout << std::setw(5) << "-";
+        } else {
+            cout << std::fixed << std::setprecision(2) << std::setw(5) << observed_order(previous_error, error, 2.0);
+        }
+        cout << " |" << endl;
+
+        previous_error = error;
+    }
     return 0;
 }
