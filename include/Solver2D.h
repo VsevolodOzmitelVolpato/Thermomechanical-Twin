@@ -12,6 +12,7 @@
 //or an unfixed node does not belong to any triangle. If CG doesnt converge it launchs a runtime error
 DVector solve_steady_2d(const Mesh2D &M, double k,const DVector &f, const std::vector<std::size_t> &fixed_nodes,const std::vector<double> &values);
 
-
+DVector solve_transient_2d(const Mesh2D &M, double rho_c, double k, const DVector &f, const std::vector<std::size_t> &fixed_nodes, 
+                           const std::vector<double> &fixed_values, const DVector &T0, double dt, std::size_t n_steps, double theta);
 
 #endif
