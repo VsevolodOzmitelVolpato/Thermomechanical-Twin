@@ -224,3 +224,37 @@ TEST(DecayingSine2D, RejectsInvalidArguments) {
     EXPECT_NO_THROW(decaying_sine_error_2d(4, 0.01, 1, 0.0));
     EXPECT_NO_THROW(decaying_sine_error_2d(4, 0.01, 1, 1.0));
 }
+
+// ESEMPIO 116. I numeri delle tre tabelle del seno che decade in 2D, quelle che apps/convergence_study stampa per il
+// README: SPAZIO con Crank-Nicolson (dt = 2.5e-4, 200 passi) e TEMPO con Eulero all'indietro e con Crank-Nicolson
+// (mesh 32 x 32, dt = 0.05 / passi). Tutte arrivano a t = 0.05. Misurati con questo metodo e ricontrollati in Python
+// (matrici sparse e un solutore diretto, niente gradiente coniugato): coincidono fino alle 7 cifre scritte qui.
+//
+//     SPAZIO (Crank-Nicolson, dt = 2.5e-4, 200 passi)
+//         n = 4:  2.452116e-02      n = 8:  6.894963e-03      n = 16:  1.776746e-03
+//     TEMPO (mesh 32 x 32)                       4 passi        8 passi        16 passi
+//         Eulero all'indietro (theta = 1):       2.016970e-02   1.035828e-02   5.092920e-03
+//         Crank-Nicolson (theta = 1/2):          1.386333e-03   6.800985e-04   5.054105e-04
+//
+// Il test fissa le righe poco costose: le altre (n = 32 e n = 64 nello spazio, 32 e 64 passi nel tempo) costano di
+// piu' senza ottimizzazioni. Se cambia il metodo (lo schema theta, il solutore, la norma) cambiano i numeri, e il test
+// dice che le tabelle del README vanno rifatte.
+TEST(DecayingSine2D, ErrorsMatchTheTablesInTheReadme) {
+    struct Case {
+        std::size_t n;
+        double dt;
+        std::size_t n_steps;
+        double theta;
+        double want;
+    };
+    const Case cases[] = {{4, 2.5e-4, 200, 0.5, 2.452116e-02},  {8, 2.5e-4, 200, 0.5, 6.894963e-03},
+                          {16, 2.5e-4, 200, 0.5, 1.776746e-03}, {32, 0.05 / 4, 4, 1.0, 2.016970e-02},
+                          {32, 0.05 / 8, 8, 1.0, 1.035828e-02}, {32, 0.05 / 16, 16, 1.0, 5.092920e-03},
+                          {32, 0.05 / 4, 4, 0.5, 1.386333e-03}, {32, 0.05 / 8, 8, 0.5, 6.800985e-04},
+                          {32, 0.05 / 16, 16, 0.5, 5.054105e-04}};
+
+    for (const Case& c : cases) {
+        EXPECT_NEAR(decaying_sine_error_2d(c.n, c.dt, c.n_steps, c.theta), c.want, 1e-6 * c.want)
+            << "n = " << c.n << ", dt = " << c.dt << ", n_steps = " << c.n_steps << ", theta = " << c.theta;
+    }
+}

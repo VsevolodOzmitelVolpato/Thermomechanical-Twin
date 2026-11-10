@@ -53,6 +53,38 @@ void print_chain_header(const char* level_name, const char* step_name) {
     std::cout << "|------:|---------:|----------:|------:|-------------:|\n";
 }
 
+// Le tabelle nel tempo della lastra 2D hanno una colonna in piu', la differenza. L'ordine non si ricava dal rapporto
+// fra due errori vicini (come sopra): la mesh ha un errore suo, E_h, che non cambia al cambiare di dt (a n = 32 vale
+// circa 4.5e-4) e sporcherebbe quel rapporto. Si sottraggono invece gli errori di due righe vicine (E_h si cancella) e
+// l'ordine e' il rapporto fra due differenze vicine: e' la stessa idea degli ESEMPI 113 e 114 dei test.
+// Una riga: passi, dt, errore, differenza dall'errore della riga prima, ordine. Quello che manca e' un trattino: la
+// differenza vuole la riga prima (previous_error > 0), l'ordine vuole anche la differenza della riga prima
+// (previous_difference > 0).
+void print_difference_row(std::size_t steps, double dt, double error, double previous_error,
+                          double previous_difference) {
+    std::cout << "| " << std::setw(5) << steps << " | " << std::scientific << std::setprecision(2) << dt
+              << " | " << error << " | ";
+    if (previous_error > 0.0) {
+        const double difference = previous_error - error;
+        std::cout << std::setw(10) << difference << " | ";
+        if (previous_difference > 0.0) {
+            std::cout << std::fixed << std::setprecision(2) << std::setw(5)
+                      << observed_order(previous_difference, difference, 2.0);
+        } else {
+            std::cout << std::setw(5) << "-";
+        }
+    } else {
+        std::cout << std::setw(10) << "-" << " | " << std::setw(5) << "-";
+    }
+    std::cout << " |\n";
+}
+
+void print_difference_header(const char* level_name, const char* step_name) {
+    std::cout << "| " << std::setw(5) << level_name << " | " << std::setw(8) << step_name
+              << " | L2 error | difference | order |\n";
+    std::cout << "|------:|---------:|---------:|-----------:|------:|\n";
+}
+
 ChainErrors chain_errors(std::size_t N, double dt, std::size_t steps, double theta) {
 
     ChainErrors errors;
@@ -185,5 +217,50 @@ int main() {
 
         previous_error = error;
     }
+
+    cout << endl;
+    cout << "### 2D plate: decaying sine, spatial convergence (Crank-Nicolson, dt = 2.5e-4, t = 0.05)" << endl << endl;
+    cout << "|     n |        h | L2 error | order |" << endl;
+    cout << "|------:|---------:|---------:|------:|" << endl;
+
+    size_t decay_cells[5] = {4, 8, 16, 32, 64};
+    previous_error = 0.0;
+    for (const auto &i : decay_cells) {
+        double h = 1.0 / i;
+        double error = decaying_sine_error_2d(i, 2.5e-4, 200, 0.5);
+
+        cout << "| " << std::setw(5) << i << " | " << std::scientific << std::setprecision(2) << h << " | " << error << " | ";
+        if (i == 4) {
+            cout << std::setw(5) << "-";
+        } else {
+            cout << std::fixed << std::setprecision(2) << std::setw(5) << observed_order(previous_error, error, 2.0);
+        }
+        cout << " |" << endl;
+
+        previous_error = error;
+    }
+
+    size_t plate_steps[5] = {4, 8, 16, 32, 64};
+    for (double theta : {1.0, 0.5}) {
+        cout << endl;
+        cout << "### 2D plate: decaying sine, temporal convergence (" << (theta == 1.0 ? "backward Euler" : "Crank-Nicolson")
+             << ", n = 32, t = 0.05)" << endl << endl;
+        print_difference_header("steps", "dt");
+
+        previous_error = 0.0;
+        double previous_difference = 0.0;
+        for (const auto &i : plate_steps) {
+            double dt = 0.05 / i;
+            double error = decaying_sine_error_2d(32, dt, i, theta);
+
+            print_difference_row(i, dt, error, previous_error, previous_difference);
+            if (previous_error > 0.0) {
+                previous_difference = previous_error - error;
+            }
+            previous_error = error;
+        }
+    }
+
+    
     return 0;
 }

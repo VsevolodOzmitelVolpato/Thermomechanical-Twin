@@ -164,6 +164,38 @@ Unit square, T = 0 on the whole boundary, source q = 2 pi^2 k sin(pi x) sin(pi y
 
 The observed order tends to 2, as expected for linear elements.
 
+For the temporal tables the order is computed from the differences between the errors of consecutive rows, not from their ratio. The mesh error E_h does not depend on dt, so it cancels in the difference and only the time error is left. On a 32 × 32 mesh E_h is about 4.5e-4: much larger than the time error of the finest Crank-Nicolson steps and comparable to that of backward Euler, so a plain ratio of consecutive errors would give the wrong order. The difference is valid only while the error keeps its sign, which is why the backward Euler table stops at 64 steps.
+
+### 2D plate: decaying sine, spatial convergence (Crank-Nicolson, dt = 2.5e-4, t = 0.05)
+
+|     n |        h | L2 error | order |
+|------:|---------:|---------:|------:|
+|     4 | 2.50e-01 | 2.45e-02 |     - |
+|     8 | 1.25e-01 | 6.89e-03 |  1.83 |
+|    16 | 6.25e-02 | 1.78e-03 |  1.96 |
+|    32 | 3.12e-02 | 4.48e-04 |  1.99 |
+|    64 | 1.56e-02 | 1.12e-04 |  1.99 |
+
+### 2D plate: decaying sine, temporal convergence (backward Euler, n = 32, t = 0.05)
+
+| steps |       dt | L2 error | difference | order |
+|------:|---------:|---------:|-----------:|------:|
+|     4 | 1.25e-02 | 2.02e-02 |          - |     - |
+|     8 | 6.25e-03 | 1.04e-02 |   9.81e-03 |     - |
+|    16 | 3.13e-03 | 5.09e-03 |   5.27e-03 |  0.90 |
+|    32 | 1.56e-03 | 2.36e-03 |   2.73e-03 |  0.95 |
+|    64 | 7.81e-04 | 9.71e-04 |   1.39e-03 |  0.97 |
+
+### 2D plate: decaying sine, temporal convergence (Crank-Nicolson, n = 32, t = 0.05)
+
+| steps |       dt | L2 error | difference | order |
+|------:|---------:|---------:|-----------:|------:|
+|     4 | 1.25e-02 | 1.39e-03 |          - |     - |
+|     8 | 6.25e-03 | 6.80e-04 |   7.06e-04 |     - |
+|    16 | 3.13e-03 | 5.05e-04 |   1.75e-04 |  2.02 |
+|    32 | 1.56e-03 | 4.62e-04 |   4.35e-05 |  2.01 |
+|    64 | 7.81e-04 | 4.51e-04 |   1.08e-05 |  2.00 |
+
 **Reading the tables.**
 - Displacement and stress inherit the orders of the temperature they come from: second order in space, first order in time for backward Euler (0.94, 0.97, 0.99, as above) and second order in time for Crank-Nicolson. The 1.95 in the last row is again the mesh error showing next to a very small time error (with `N = 1600` the three orders are 2.00, 2.00 and 1.99).
 - The stress error is `E / L = 3` times the tip error in every row (up to the printed digits). In the discrete problem, the equilibrium of the clamped bar forces a uniform stress equal to `-(E / L)` times the tip displacement of the free bar. The two columns come from two different solves, free and clamped, so the constant ratio is a free consistency check of the mechanics.
