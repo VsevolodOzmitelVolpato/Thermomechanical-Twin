@@ -18,4 +18,5 @@ std::vector<Triplet> stiffness_triplets_2d(const Mesh2D &M, double k);
 std::vector<Triplet> mass_triplets_2d(const Mesh2D &M, double rho_c);
 
 std::vector<double> assemble_load_2d(const Mesh2D &M, const std::function<double(double, double)> &q);
+
 #endif

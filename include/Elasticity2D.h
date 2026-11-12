@@ -24,5 +24,8 @@ Vector6 element_thermal_load(const Mesh2D &M, std::size_t e, const Matrix3 &D, c
 std::vector<Triplet> elasticity_stiffness_triplets_2d(const Mesh2D &M, const Matrix3 &D);
 
 CSR assemble_elasticity_stiffness_2d(const Mesh2D &M, const Matrix3 &D);
+
+std::vector<double> assemble_thermal_load_2d(const Mesh2D &M, const Matrix3 &D, double nu, double alpha,
+                                             const std::vector<double> &T, double T_ref);
 //ctest --test-dir build --timeout 120
 #endif

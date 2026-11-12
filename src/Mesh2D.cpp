@@ -89,7 +89,8 @@ std::vector<size_t> boundary_nodes(const Mesh2D &M){
             std::pair<std::size_t, std::size_t> key = {a,b};
 
             counts[key] +=1;
-        }}
+        }
+    }
     
     std::set<size_t> s;
 

@@ -123,3 +123,26 @@ CSR assemble_elasticity_stiffness_2d(const Mesh2D &M, const Matrix3 &D){
     CSR csr = csr_from_triplets(2 * M.num_nodes(), elasticity_stiffness_triplets_2d(M,D));
     return csr;
 }
+
+
+std::vector<double> assemble_thermal_load_2d(const Mesh2D &M, const Matrix3 &D, double nu, double alpha,
+                                             const std::vector<double> &T, double T_ref){
+    if(T.size() != M.num_nodes()){
+        throw std::invalid_argument("The vector T doesnt match in size with the mesh");}
+
+    std::vector<double> F(2 * M.num_nodes(), 0.0);
+
+    for(std::size_t e {0}; e < M.num_triangles(); ++e){
+        Triangle t = M.triangle(e);
+        double mean_T = (T[t[0]] + T[t[1]] + T[t[2]]) / 3.0;
+        double dT = mean_T - T_ref;
+
+        Vector3 eps_th = plane_strain_thermal_strain(nu, alpha, dT);
+        Vector6 f = element_thermal_load(M, e, D, eps_th);
+
+        for(std::size_t i {0}; i < 6; ++i){
+            F[2 * t[i / 2] + i % 2] += f[i];}
+    }
+
+    return F;
+}
