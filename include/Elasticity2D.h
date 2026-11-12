@@ -2,8 +2,19 @@
 #define ELASTICITY2D_H
 
 #include "Fem2D.h"
+#include <array>
+#include <cstddef>
+
+using Matrix3x6 = std::array<std::array<double, 6>, 3>;
+using Vector6 = std::array<double, 6>;
+using Matrix6 = std::array<std::array<double, 6>, 6>;
 
 Matrix3 plane_strain_matrix(double E, double nu);
+
 Vector3 plane_strain_thermal_strain(double nu, double alpha, double dT);
+
+Matrix3x6 strain_displacement_matrix(const Mesh2D& M, std::size_t e);
+
+Matrix6 element_elasticity_stiffness(const Mesh2D& mesh, std::size_t e, const Matrix3& D);
 
 #endif
