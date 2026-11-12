@@ -17,4 +17,6 @@ Matrix3x6 strain_displacement_matrix(const Mesh2D& M, std::size_t e);
 
 Matrix6 element_elasticity_stiffness(const Mesh2D& mesh, std::size_t e, const Matrix3& D);
 
+Vector6 element_thermal_load(const Mesh2D &M, std::size_t e, const Matrix3 &D, const Vector3 &eps_th);
+//ctest --test-dir build --timeout 120
 #endif

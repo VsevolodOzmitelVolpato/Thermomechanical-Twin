@@ -83,3 +83,22 @@ Matrix6 element_elasticity_stiffness(const Mesh2D &M, std::size_t e, const Matri
 
     return K;
 }
+
+Vector6 element_thermal_load(const Mesh2D &M, std::size_t e, const Matrix3 &D, const Vector3 &eps_th){
+    Matrix3x6 B = strain_displacement_matrix(M, e);
+    double area = M.area(e);
+    
+    Vector3 sigma{};
+
+    for(std::size_t i {0}; i < 3; ++i){
+        for(std::size_t k {0}; k < 3; ++k){
+            sigma[i] += D[i][k] * eps_th[k];}}
+
+    Vector6 f{};
+
+    for(std::size_t j{0}; j < 6; ++j){
+        for(std::size_t k{0}; k < 3; ++k){
+            f[j] += area * B[k][j] * sigma[k];}}
+
+    return f;
+}

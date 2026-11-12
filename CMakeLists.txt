@@ -53,7 +53,8 @@ add_executable(unit_tests
     tests/test_decay2d.cpp
     tests/test_elasticity2d.cpp
     tests/test_elasticity_element2d.cpp
-    tests/test_elasticity_stiffness2d.cpp)
+    tests/test_elasticity_stiffness2d.cpp
+     tests/test_elasticity_thermal_load2d.cpp)
 target_link_libraries(unit_tests PRIVATE twin_core GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(unit_tests)
