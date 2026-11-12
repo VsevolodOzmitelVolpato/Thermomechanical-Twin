@@ -102,3 +102,24 @@ Vector6 element_thermal_load(const Mesh2D &M, std::size_t e, const Matrix3 &D, c
 
     return f;
 }
+
+std::vector<Triplet> elasticity_stiffness_triplets_2d(const Mesh2D &M, const Matrix3 &D){
+    std::vector<Triplet> vec_tr;
+    vec_tr.reserve(36 * M.num_triangles());
+
+    for(std::size_t e {0}; e < M.num_triangles(); ++e){
+        Triangle t = M.triangle(e);
+        Matrix6 Ke = element_elasticity_stiffness(M, e, D);
+        for(std::size_t i {0}; i < 6; ++i){
+            for(std::size_t j {0}; j < 6; ++j){
+                Triplet triplet{2 * t[i / 2] + i % 2, 2 * t[j / 2] + j % 2, Ke[i][j]};
+                vec_tr.push_back(triplet);}}
+    }
+ 
+    return vec_tr;
+}
+
+CSR assemble_elasticity_stiffness_2d(const Mesh2D &M, const Matrix3 &D){
+    CSR csr = csr_from_triplets(2 * M.num_nodes(), elasticity_stiffness_triplets_2d(M,D));
+    return csr;
+}
