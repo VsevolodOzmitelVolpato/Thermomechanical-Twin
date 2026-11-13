@@ -1,5 +1,6 @@
 #include <iomanip>
 #include <iostream>
+#include <string>
 #include "Fem1D.h"
 #include "Thermoelastic1D.h"
 #include "Verification2D.h"
@@ -107,6 +108,41 @@ ChainErrors chain_errors(std::size_t N, double dt, std::size_t steps, double the
     errors.stress = error;
 
     return errors;
+}
+
+// La trave d'acciaio dei test: 4 m per 1 m, E = 210 GPa, nu = 0.3, alpha = 12e-6 per kelvin, gradiente di 100 K per
+// metro, temperatura di riferimento 293.15 K.
+BendingBeam steel_beam() {
+    BendingBeam beam;
+    beam.length = 4.0;
+    beam.height = 1.0;
+    beam.E = 210.0e9;
+    beam.nu = 0.3;
+    beam.alpha = 12.0e-6;
+    beam.gradient = 100.0;
+    beam.T_ref = 293.15;
+    return beam;
+}
+
+// L'ordine osservato fra l'errore della riga prima (previous) e quello di questa riga (current), con 2 decimali.
+// Nella prima riga non c'e' la riga prima (previous = 0) e si stampa un trattino.
+void print_order(double previous, double current) {
+    if (previous > 0.0) {
+        std::cout << std::fixed << std::setprecision(2) << std::setw(5) << observed_order(previous, current, 2.0);
+    } else {
+        std::cout << std::setw(5) << "-";
+    }
+}
+
+// Una riga della tabella della trave: k celle in altezza (la mesh e' 4 k x k), i due errori e i due ordini.
+void print_beam_row(std::size_t k, const BendingBeamErrors& errors, const BendingBeamErrors& previous) {
+    const std::string cells = std::to_string(4 * k) + " x " + std::to_string(k);
+    std::cout << "| " << std::setw(5) << k << " | " << std::setw(8) << cells << " | " << std::scientific
+              << std::setprecision(2) << std::setw(18) << errors.displacement << " | ";
+    print_order(previous.displacement, errors.displacement);
+    std::cout << " | " << std::scientific << std::setprecision(2) << std::setw(12) << errors.stress << " | ";
+    print_order(previous.stress, errors.stress);
+    std::cout << " |\n";
 }
 
 int main() {
@@ -261,6 +297,19 @@ int main() {
         }
     }
 
+    cout << endl;
+    cout << "### 2D beam: thermal bending of a steel beam (4 m x 1 m, G = 100 K/m, 4 k x k cells)" << endl << endl;
+    cout << "|     k |    cells | displacement error | order | stress error | order |" << endl;
+    cout << "|------:|---------:|-------------------:|------:|-------------:|------:|" << endl;
+
+    BendingBeamErrors beam_previous;
+    beam_previous.displacement = 0.0;
+    beam_previous.stress = 0.0;
+    for (std::size_t k : {1, 2, 4, 8, 16, 32}) {
+        const BendingBeamErrors errors = bending_beam_errors_2d(steel_beam(), 4 * k, k);
+        print_beam_row(k, errors, beam_previous);
+        beam_previous = errors;
+    }
     
     return 0;
 }
