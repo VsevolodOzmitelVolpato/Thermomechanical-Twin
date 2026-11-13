@@ -19,7 +19,8 @@ add_library(twin_core
     src/Dirichlet2D.cpp
     src/Solver2D.cpp
     src/Verification2D.cpp
-    src/Elasticity2D.cpp)
+    src/Elasticity2D.cpp
+    src/Thermoelastic2D.cpp)
 target_include_directories(twin_core PUBLIC include)
 target_compile_options(twin_core PRIVATE -Wall -Wextra -Werror=return-type)
 # Programma che stampa le tabelle di convergenza (per il README).
@@ -59,7 +60,8 @@ add_executable(unit_tests
     tests/test_elasticity_load2d.cpp
     tests/test_elasticity_solve2d.cpp
     tests/test_elasticity_stress2d.cpp
-    tests/test_elasticity_beam2d.cpp)
+    tests/test_elasticity_beam2d.cpp
+    tests/test_thermoelastic2d.cpp)
 target_link_libraries(unit_tests PRIVATE twin_core GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(unit_tests)
