@@ -27,5 +27,13 @@ CSR assemble_elasticity_stiffness_2d(const Mesh2D &M, const Matrix3 &D);
 
 std::vector<double> assemble_thermal_load_2d(const Mesh2D &M, const Matrix3 &D, double nu, double alpha,
                                              const std::vector<double> &T, double T_ref);
-//ctest --test-dir build --timeout 120
+
+std::vector<double> solve_displacement_2d(const Mesh2D &M, const Matrix3 &D, const std::vector<double> &F,
+                                          const std::vector<std::size_t> &fixed_dofs, const std::vector<double> &fixed_values);
+
+Vector3 element_stress_2d(const Mesh2D &M, std::size_t e, const Matrix3 &D, const Vector6 &u_e, const Vector3 &eps_th);
+
+std::vector<Vector3> stress_field_2d(const Mesh2D &M, const Matrix3 &D, double nu, double alpha,
+                                     const std::vector<double> &u, const std::vector<double> &T, double T_ref);
+
 #endif

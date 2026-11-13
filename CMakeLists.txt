@@ -56,7 +56,9 @@ add_executable(unit_tests
     tests/test_elasticity_stiffness2d.cpp
     tests/test_elasticity_thermal_load2d.cpp
     tests/test_elasticity_assembly2d.cpp
-    tests/test_elasticity_load2d.cpp)
+    tests/test_elasticity_load2d.cpp
+    tests/test_elasticity_solve2d.cpp
+    tests/test_elasticity_stress2d.cpp)
 target_link_libraries(unit_tests PRIVATE twin_core GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(unit_tests)

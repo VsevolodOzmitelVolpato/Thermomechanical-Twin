@@ -1,5 +1,11 @@
 #include "Elasticity2D.h"
 #include <stdexcept>
+#include <algorithm>
+#include <cmath>
+#include <vector>
+#include "Triplets.h"
+#include "CGSolver.h"
+#include "Dirichlet2D.h"
 
 Matrix3 plane_strain_matrix(double E, double nu){
     if(!(E > 0.0)){
@@ -124,7 +130,6 @@ CSR assemble_elasticity_stiffness_2d(const Mesh2D &M, const Matrix3 &D){
     return csr;
 }
 
-
 std::vector<double> assemble_thermal_load_2d(const Mesh2D &M, const Matrix3 &D, double nu, double alpha,
                                              const std::vector<double> &T, double T_ref){
     if(T.size() != M.num_nodes()){
@@ -145,4 +150,95 @@ std::vector<double> assemble_thermal_load_2d(const Mesh2D &M, const Matrix3 &D, 
     }
 
     return F;
+}
+
+std::vector<double> solve_displacement_2d(const Mesh2D &M, const Matrix3 &D, const std::vector<double> &F,
+                                          const std::vector<std::size_t> &fixed_dofs, const std::vector<double> &fixed_values){
+    std::size_t N = 2 * M.num_nodes();
+    if(F.size() != N){
+        throw std::invalid_argument("the F vector doesnt matche the size of the mesh");}
+    if(fixed_dofs.size() < 3){
+        throw std::invalid_argument("the size of the dofs is less than 3");}
+
+    std::vector<Triplet> trip = elasticity_stiffness_triplets_2d(M, D);
+
+    double s = 0.0;
+    for (const auto& t : trip) {
+        s = std::max(s, std::fabs(t.val));}
+
+    std::vector<double> load = F;
+
+    if(s > 0.0){
+        for(auto &t : trip){
+            t.val = t.val / s;}
+        for(auto &l : load){
+            l = l / s;}}
+
+    CSR K = csr_from_triplets(N, trip);
+    CSR A = csr_from_triplets(N, dirichlet_matrix_triplets_2d(N, trip, fixed_dofs));
+
+    DVector b = dirichlet_rhs_2d(K, load, fixed_dofs, fixed_values);
+
+    std::vector<double> x0(N, 0.0);
+
+    for(std::size_t q{0}; q < fixed_values.size(); ++q){
+        x0[fixed_dofs[q]] = fixed_values[q];}
+
+    CGSolver cg(A, b, x0, 1e-12, 10 * N);
+    cg.solve(true);
+
+    if(!cg.has_converged()){
+        throw std::runtime_error("the CG has not converged");}
+
+    std::vector<double> u = cg.get_solution();
+
+    if(!(norm(b - A * u) <= 1e-6 * norm(b))){
+        throw std::runtime_error("the residual is too large");}
+
+    return u;
+}
+
+Vector3 element_stress_2d(const Mesh2D &M, std::size_t e, const Matrix3 &D, const Vector6 &u_e, const Vector3 &eps_th){
+    Matrix3x6 B = strain_displacement_matrix(M, e);
+
+    Vector3 eps{};
+
+    for(std::size_t i {0}; i < eps.size(); ++i){
+        for(std::size_t j{0}; j < 6; ++j){
+            eps[i] += B[i][j] * u_e[j];}
+        eps[i] -= eps_th[i];
+    }
+
+    Vector3 sigma{};
+
+    for(std::size_t i {0}; i < sigma.size(); ++i){
+        for(std::size_t k{0}; k < 3; ++k){
+            sigma[i] += D[i][k] * eps[k];}}
+
+    return sigma;
+}
+
+std::vector<Vector3> stress_field_2d(const Mesh2D &M, const Matrix3 &D, double nu, double alpha,
+                                     const std::vector<double> &u, const std::vector<double> &T, double T_ref){
+    if(u.size() != 2 * M.num_nodes()){
+        throw std::invalid_argument("the u dimension doesnt match the mesh one");}
+    if(T.size() != M.num_nodes()){
+        throw std::invalid_argument("the T vector doesnt match the mesh size");}
+
+    std::vector<Vector3> sigma(M.num_triangles());
+
+    for(std::size_t e {0}; e < M.num_triangles(); ++e){
+        const Triangle &t = M.triangle(e);
+        Vector6 u_e;
+
+        for(std::size_t i {0}; i < 6 ; ++i){
+            u_e[i] = u[2 * t[i / 2] + i % 2];}
+
+        double dT = (T[t[0]] + T[t[1]] + T[t[2]]) / 3.0 - T_ref;
+        Vector3 eps_th = plane_strain_thermal_strain(nu, alpha, dT);
+
+        sigma[e] = element_stress_2d(M, e, D, u_e, eps_th);
+    }
+
+    return sigma;
 }
