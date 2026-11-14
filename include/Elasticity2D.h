@@ -36,4 +36,9 @@ Vector3 element_stress_2d(const Mesh2D &M, std::size_t e, const Matrix3 &D, cons
 std::vector<Vector3> stress_field_2d(const Mesh2D &M, const Matrix3 &D, double nu, double alpha,
                                      const std::vector<double> &u, const std::vector<double> &T, double T_ref);
 
+double von_mises_2d(const Vector3& sigma, double sigma_zz);
+
+std::vector<double> von_mises_field_2d(const Mesh2D& mesh, const std::vector<Vector3>& sigma, double E, double nu,
+                                       double alpha, const std::vector<double>& T, double T_ref);
+
 #endif

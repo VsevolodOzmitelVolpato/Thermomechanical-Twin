@@ -4,7 +4,12 @@
 #include "Fem1D.h"
 #include "Thermoelastic1D.h"
 #include "Verification2D.h"
+#include "Elasticity2D.h"
+#include "Mesh2D.h"
+#include "Thermoelastic2D.h"
 #include <cmath>
+#include <cstddef>
+#include <vector>
 using std::cout;
 using std::endl;
 
@@ -143,6 +148,116 @@ void print_beam_row(std::size_t k, const BendingBeamErrors& errors, const Bendin
     std::cout << " | " << std::scientific << std::setprecision(2) << std::setw(12) << errors.stress << " | ";
     print_order(previous.stress, errors.stress);
     std::cout << " |\n";
+}
+
+// ---- La lastra d'acciaio che si raffredda: la von Mises a meta' spessore -------------------------------------------
+
+// Il valore della mesh e quello del libro, in Pa, nello stesso punto della lastra.
+struct SlabVonMises {
+    double fe = 0.0;      // la von Mises della mesh: media dei due triangoli della cella
+    double exact = 0.0;   // la formula del libro al centro di quella cella
+};
+
+// La lastra dei test (ESEMPIO 237): acciaio (E = 210 GPa, nu = 0.3, alpha = 12e-6 per kelvin, rho c = 7850 * 470,
+// k = 45), spessore 0.1 m, lunga 4 volte lo spessore, le due facce a 293.15 K, rulli (u = 0) ai due estremi.
+// Temperatura iniziale 293.15 + 100 sin(pi y / H) K: il calore e' un seno che decade, e al tempo t vale
+//     T - T_ref = 100 sin(pi y / H) exp(-t / tau),     tau = H^2 rho c / (pi^2 k) = 83.07 s.
+// Lontano dagli estremi la lastra non si deforma ne' in x ne' in z, e la von Mises e' la formula del libro
+//     E alpha (T - T_ref) / (1 - nu).
+// Qui si guarda a t = tau (100 passi di Crank-Nicolson, dt = tau / 100), a meta' lunghezza, nella cella appena sopra la
+// meta' dello spessore. k e' il numero di celle nello spessore: la mesh e' 4 k x k (k pari, cosi' c'e' una riga di
+// nodi proprio a meta' spessore).
+SlabVonMises slab_von_mises(std::size_t k) {
+    const double pi = std::acos(-1.0);
+    const double height = 0.1;
+    const double E = 210.0e9;
+    const double nu = 0.3;
+    const double alpha = 12.0e-6;
+    const double rho_c = 7850.0 * 470.0;
+    const double conductivity = 45.0;
+    const double T_ref = 293.15;
+    const double amplitude = 100.0;
+    const double tau = height * height * rho_c / (pi * pi * conductivity);
+
+    const std::size_t nx = 4 * k;
+    const std::size_t ny = k;
+    const Mesh2D mesh = rectangle_mesh(4.0 * height, height, nx, ny);
+
+    ThermoMechanicalProblem2D problem;
+    problem.f = DVector((nx + 1) * (ny + 1), 0.0);
+    problem.T0 = DVector((nx + 1) * (ny + 1), T_ref);
+    for (std::size_t j = 0; j <= ny; ++j) {
+        for (std::size_t i = 0; i <= nx; ++i) {
+            const double y_over_height = static_cast<double>(j) / static_cast<double>(ny);
+            problem.T0[j * (nx + 1) + i] = T_ref + amplitude * std::sin(pi * y_over_height);
+        }
+    }
+    for (std::size_t i = 0; i <= nx; ++i) {   // le due facce restano a T_ref
+        problem.fixed_nodes.push_back(i);
+        problem.fixed_temperatures.push_back(T_ref);
+        problem.fixed_nodes.push_back(ny * (nx + 1) + i);
+        problem.fixed_temperatures.push_back(T_ref);
+    }
+    for (std::size_t j = 0; j <= ny; ++j) {   // rulli: u = 0 sui due lati x = 0 e x = L
+        problem.fixed_dofs.push_back(2 * (j * (nx + 1)));
+        problem.fixed_displacements.push_back(0.0);
+        problem.fixed_dofs.push_back(2 * (j * (nx + 1) + nx));
+        problem.fixed_displacements.push_back(0.0);
+    }
+    problem.fixed_dofs.push_back(1);          // v = 0 nel nodo 0, contro il moto rigido in y
+    problem.fixed_displacements.push_back(0.0);
+    problem.rho_c = rho_c;
+    problem.k = conductivity;
+    problem.dt = tau / 100.0;
+    problem.n_steps = 100;
+    problem.save_every = 100;
+    problem.theta = 0.5;
+    problem.E = E;
+    problem.nu = nu;
+    problem.alpha = alpha;
+    problem.T_ref = T_ref;
+
+    const std::vector<ThermoMechanicalState2D> states = solve_thermomechanical_2d(mesh, problem);
+    const ThermoMechanicalState2D& state = states.back();   // il passo 100, cioe' t = tau
+    const std::vector<double> vm = von_mises_field_2d(mesh, state.sigma, E, nu, alpha, state.T, T_ref);
+
+    // La cella in riga k / 2 (da y = H / 2 a y = H / 2 + H / k), in colonna 2 k (a meta' lunghezza). Il triangolo
+    // in basso a destra e' il numero 2 * cella, quello in alto a sinistra il numero 2 * cella + 1.
+    const std::size_t cell = (k / 2) * nx + nx / 2;
+    const double y_center = (static_cast<double>(k / 2) + 0.5) * height / static_cast<double>(k);
+
+    SlabVonMises result;
+    result.fe = 0.5 * (vm[2 * cell] + vm[2 * cell + 1]);
+    result.exact = E * alpha * amplitude * std::sin(pi * y_center / height) * std::exp(-1.0) / (1.0 - nu);
+    return result;
+}
+
+// La tabella: per ogni k la von Mises della mesh e quella del libro in megapascal, l'errore relativo e l'ordine
+// (nella prima riga non c'e' la riga prima: un trattino).
+void print_slab_table() {
+    std::cout << "\n### 2D slab: von Mises of a cooling steel slab at mid-height (4 k x k cells, Crank-Nicolson, "
+                 "dt = tau / 100, t = tau = 83.07 s)\n\n";
+    std::cout << "|     k |    cells | FE [MPa] | textbook [MPa] | relative error | order |\n";
+    std::cout << "|------:|---------:|---------:|---------------:|---------------:|------:|\n";
+
+    double previous_error = 0.0;
+    for (std::size_t k : {2, 4, 8, 16, 32}) {
+        const SlabVonMises value = slab_von_mises(k);
+        const double error = std::fabs(value.fe - value.exact) / value.exact;
+        const std::string cells = std::to_string(4 * k) + " x " + std::to_string(k);
+        std::cout << "| " << std::setw(5) << k << " | " << std::setw(8) << cells << " | " << std::fixed
+                  << std::setprecision(3) << std::setw(8) << value.fe / 1.0e6 << " | " << std::setw(14)
+                  << value.exact / 1.0e6 << " | " << std::scientific << std::setprecision(2) << std::setw(14) << error
+                  << " | ";
+        if (previous_error > 0.0) {
+            std::cout << std::fixed << std::setprecision(2) << std::setw(5)
+                      << observed_order(previous_error, error, 2.0);
+        } else {
+            std::cout << std::setw(5) << "-";
+        }
+        std::cout << " |\n";
+        previous_error = error;
+    }
 }
 
 int main() {
@@ -311,5 +426,7 @@ int main() {
         beam_previous = errors;
     }
     
+    print_slab_table();
+
     return 0;
 }

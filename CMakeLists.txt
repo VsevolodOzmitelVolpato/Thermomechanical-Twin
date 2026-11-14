@@ -61,7 +61,8 @@ add_executable(unit_tests
     tests/test_elasticity_solve2d.cpp
     tests/test_elasticity_stress2d.cpp
     tests/test_elasticity_beam2d.cpp
-    tests/test_thermoelastic2d.cpp)
+    tests/test_thermoelastic2d.cpp
+    tests/test_von_mises2d.cpp)
 target_link_libraries(unit_tests PRIVATE twin_core GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(unit_tests)

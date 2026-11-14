@@ -242,3 +242,34 @@ std::vector<Vector3> stress_field_2d(const Mesh2D &M, const Matrix3 &D, double n
 
     return sigma;
 }
+
+double von_mises_2d(const Vector3& sigma, double sigma_zz){
+    double dxy = sigma[0] - sigma[1], dyz = sigma[1] - sigma_zz, dzx = sigma_zz - sigma[0];
+    
+    return std::sqrt(0.5 * (dxy*dxy + dyz*dyz + dzx*dzx) + 3.0 * sigma[2] * sigma[2]);
+}
+
+std::vector<double> von_mises_field_2d(const Mesh2D &M, const std::vector<Vector3> &sigma, double E, double nu,
+                                       double alpha, const std::vector<double> &T, double T_ref){
+    if(!(E > 0.0)){
+        throw std::invalid_argument("the E value is invalid");}
+    if(!(nu > -1.0 && nu < 0.5)){
+        throw std::invalid_argument("the nu value is invalid");}
+    if(sigma.size() != M.num_triangles()){
+        throw std::invalid_argument("the sigma argument doesnt match the size of the mesh");}
+    if(T.size() != M.num_nodes()){
+        throw std::invalid_argument("the T argument doesnt match the size of the mesh");}
+
+    std::vector<double> vm(M.num_triangles());
+
+    for(std::size_t e {0}; e < M.num_triangles() ; ++e){
+        const Triangle t = M.triangle(e);
+
+        double dT = (T[t[0]] + T[t[1]] + T[t[2]]) / 3.0 - T_ref;
+        double sigma_zz = nu * (sigma[e][0] + sigma[e][1]) - E * alpha * dT;
+
+        vm[e] = von_mises_2d(sigma[e], sigma_zz);
+    }
+
+    return vm;
+}
