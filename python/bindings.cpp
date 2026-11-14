@@ -3,8 +3,47 @@
 #include <pybind11/numpy.h>
 #include <cstdint>
 #include <vector>
+#include <pybind11/functional.h>
+#include "Assembly2D.h"
+#include "Triplets.h"
 
 namespace py = pybind11;
+
+namespace {
+    py::array_t<double> to_array(const std::vector<double>& v) {
+    py::array_t<double> arr(v.size());
+
+    double* ptr = arr.mutable_data();
+
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        ptr[i] = v[i];}
+
+    return arr;
+}
+
+py::object to_csr(const std::vector<Triplet>& triplets, std::size_t n) {
+    const std::size_t nnz = triplets.size();
+
+    py::array_t<std::int64_t> rows(nnz);
+    py::array_t<std::int64_t> cols(nnz);
+    py::array_t<double> vals(nnz);
+
+    std::int64_t* r_ptr = rows.mutable_data();
+    std::int64_t* c_ptr = cols.mutable_data();
+    double* v_ptr = vals.mutable_data();
+
+    for (std::size_t i = 0; i < nnz; ++i) {
+        r_ptr[i] = static_cast<std::int64_t>(triplets[i].row);
+        c_ptr[i] = static_cast<std::int64_t>(triplets[i].col);
+        v_ptr[i] = triplets[i].val;
+    }
+
+    py::object coo_matrix = py::module_::import("scipy.sparse").attr("coo_matrix");
+    py::object coo = coo_matrix(py::make_tuple(vals, py::make_tuple(rows, cols)),
+                                py::arg("shape") = py::make_tuple(n, n));
+    return coo.attr("tocsr")();
+}
+}
 
 PYBIND11_MODULE(thermomech, m) {
     m.doc() = "thermomech: Python interface of the C++ FEM core";
@@ -59,5 +98,23 @@ PYBIND11_MODULE(thermomech, m) {
         py::arg("length_y"), 
         py::arg("nx"), 
         py::arg("ny"));
+
+    m.def("assemble_stiffness_2d", [](const Mesh2D& mesh, double k) {
+        return to_csr(stiffness_triplets_2d(mesh, k), mesh.num_nodes());
+    },  py::arg("mesh"), py::arg("k"));
+    
+    m.def("assemble_mass_2d", [](const Mesh2D& mesh, double rho_c) {
+        return to_csr(mass_triplets_2d(mesh, rho_c), mesh.num_nodes());
+    },  py::arg("mesh"), py::arg("rho_c"));
+
+    m.def("assemble_load_2d", [](const Mesh2D& mesh, double q) {
+        return to_array(assemble_load_2d(mesh, q));
+    },  py::arg("mesh"), py::arg("q"));
+
+    m.def("assemble_load_2d", [](const Mesh2D& mesh, const std::function<double(double, double)>& q) {
+        if (!q) {
+            throw py::type_error("q must be a float or a callable function, not None");}
+        return to_array(assemble_load_2d(mesh, q));
+    },  py::arg("mesh"), py::arg("q"));
 
 }
