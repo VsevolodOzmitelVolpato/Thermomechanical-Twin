@@ -66,3 +66,36 @@ add_executable(unit_tests
 target_link_libraries(unit_tests PRIVATE twin_core GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(unit_tests)
+
+# 4) The Python module "thermomech" (pybind11). Switch it off with -DTWIN_BUILD_PYTHON=OFF.
+option(TWIN_BUILD_PYTHON "Build the Python module and its tests" ON)
+if(TWIN_BUILD_PYTHON)
+    # On Windows, look for Python in PATH before the registry: it is the "python" you type in the terminal.
+    set(Python_FIND_REGISTRY LAST)
+    set(PYBIND11_FINDPYTHON ON)
+
+    # pybind11 is downloaded the first time you configure, like GoogleTest.
+    FetchContent_Declare(pybind11
+        URL https://github.com/pybind/pybind11/archive/refs/tags/v3.1.0.zip)
+    FetchContent_MakeAvailable(pybind11)
+
+    # A shared module can only contain position-independent code (needed on Linux, ignored on Windows).
+    set_target_properties(twin_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+    # The name of the target is the name of the module: "import thermomech".
+    # NO_EXTRAS: no link-time optimization and no stripping, to keep the build simple.
+    pybind11_add_module(thermomech NO_EXTRAS python/bindings.cpp)
+    target_link_libraries(thermomech PRIVATE twin_core)
+    set_target_properties(thermomech PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/python)
+
+    # MinGW: copy the compiler runtime into the module, otherwise Python cannot find libstdc++-6.dll and friends.
+    if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_link_options(thermomech PRIVATE
+            -static-libgcc -static-libstdc++ -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive)
+    endif()
+
+    # All the Python tests are one CTest test. PYTHONPATH tells Python where the module has been built.
+    add_test(NAME python_tests
+        COMMAND ${Python_EXECUTABLE} -m pytest ${PROJECT_SOURCE_DIR}/python/tests -q)
+    set_tests_properties(python_tests PROPERTIES ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:thermomech>")
+endif()

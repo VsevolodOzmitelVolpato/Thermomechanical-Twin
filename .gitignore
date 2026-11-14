@@ -1,3 +1,5 @@
 build/
 .vscode/
 InstallationLog.txt
+__pycache__/
+.pytest_cache/
