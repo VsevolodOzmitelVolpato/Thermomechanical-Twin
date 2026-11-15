@@ -1,10 +1,14 @@
 #include <pybind11/pybind11.h>
 #include "Mesh2D.h"
 #include <pybind11/numpy.h>
+#include <pybind11/stl.h>
+#include "Solver2D.h"
 #include <cstdint>
 #include <vector>
 #include <pybind11/functional.h>
 #include "Assembly2D.h"
+#include "Thermoelastic2D.h"
+#include "Elasticity2D.h"
 #include "Triplets.h"
 
 namespace py = pybind11;
@@ -116,5 +120,138 @@ PYBIND11_MODULE(thermomech, m) {
             throw py::type_error("q must be a float or a callable function, not None");}
         return to_array(assemble_load_2d(mesh, q));
     },  py::arg("mesh"), py::arg("q"));
+
+    m.def("solve_steady_2d", [](const Mesh2D& mesh,
+                                double k,
+                                const std::vector<double>& f,
+                                const std::vector<std::size_t>& fixed_nodes,
+                                const std::vector<double>& fixed_values) {
+        return to_array(solve_steady_2d(mesh, k, f, fixed_nodes, fixed_values));
+    }, py::arg("mesh"),
+       py::arg("k"),
+       py::arg("f"),
+       py::arg("fixed_nodes"),
+       py::arg("fixed_values"));
+
+    m.def("solve_transient_2d", [](const Mesh2D& mesh,
+                                   double rho_c,
+                                   double k,
+                                   const std::vector<double>& f,
+                                   const std::vector<std::size_t>& fixed_nodes,
+                                   const std::vector<double>& fixed_values,
+                                   const std::vector<double>& T0,
+                                   double dt,
+                                   std::size_t n_steps,
+                                   double theta) {
+        return to_array(solve_transient_2d(mesh, rho_c, k, f, fixed_nodes, fixed_values, T0, dt, n_steps, theta));
+    }, py::arg("mesh"),
+       py::arg("rho_c"),
+       py::arg("k"),
+       py::arg("f"),
+       py::arg("fixed_nodes"),
+       py::arg("fixed_values"),
+       py::arg("T0"),
+       py::arg("dt"),
+       py::arg("n_steps"),
+       py::arg("theta"));
+
+
+    m.def("solve_thermomechanical_2d", [](
+        const Mesh2D& mesh,
+        double rho_c,
+        double k,
+        const std::vector<double>& f,
+        const std::vector<std::size_t>& fixed_nodes,
+        const std::vector<double>& fixed_temperatures,
+        const std::vector<double>& T0,
+        double dt,
+        std::size_t n_steps,
+        double theta,
+        std::size_t save_every,
+        double E,
+        double nu,
+        double alpha,
+        double T_ref,
+        const std::vector<std::size_t>& fixed_dofs,
+        const std::vector<double>& fixed_displacements
+    ) {
+        ThermoMechanicalProblem2D problem;
+        problem.rho_c = rho_c;
+        problem.k = k;
+        problem.f = f;
+        problem.fixed_nodes = fixed_nodes;
+        problem.fixed_temperatures = fixed_temperatures;
+        problem.T0 = T0;
+        problem.dt = dt;
+        problem.n_steps = n_steps;
+        problem.theta = theta;
+        problem.save_every = save_every;
+        problem.E = E;
+        problem.nu = nu;
+        problem.alpha = alpha;
+        problem.T_ref = T_ref;
+        problem.fixed_dofs = fixed_dofs;
+        problem.fixed_displacements = fixed_displacements;
+
+        auto states = solve_thermomechanical_2d(mesh, problem);
+
+        const std::size_t m = states.size();
+        const std::size_t n = mesh.num_nodes();
+        const std::size_t n_tri = mesh.num_triangles();
+
+        std::vector<double> times;
+        std::vector<double> T_all;
+        std::vector<double> u_all;
+        std::vector<double> sigma_all;
+        std::vector<double> vm_all;
+
+        times.reserve(m);
+        T_all.reserve(m * n);
+        u_all.reserve(m * 2 * n);
+        sigma_all.reserve(m * n_tri * 3);
+        vm_all.reserve(m * n_tri);
+
+        for (const auto& state : states) {
+            times.push_back(state.time);
+            
+            T_all.insert(T_all.end(), state.T.begin(), state.T.end());
+            u_all.insert(u_all.end(), state.u.begin(), state.u.end());
+
+            for (const auto& sig : state.sigma) {
+                sigma_all.push_back(sig[0]); // xx
+                sigma_all.push_back(sig[1]); // yy
+                sigma_all.push_back(sig[2]); // xy
+            }
+
+            auto vm = von_mises_field_2d(mesh, state.sigma, E, nu, alpha, state.T, T_ref);
+            vm_all.insert(vm_all.end(), vm.begin(), vm.end());
+        }
+
+        py::dict result;
+        result["time"] = to_array(times);
+        result["T"] = to_array(T_all).attr("reshape")(m, n);
+        result["u"] = to_array(u_all).attr("reshape")(m, 2 * n);
+        result["sigma"] = to_array(sigma_all).attr("reshape")(m, n_tri, 3);
+        result["von_mises"] = to_array(vm_all).attr("reshape")(m, n_tri);
+
+        return result;
+    },
+    py::arg("mesh"),
+    py::arg("rho_c"),
+    py::arg("k"),
+    py::arg("f"),
+    py::arg("fixed_nodes"),
+    py::arg("fixed_temperatures"),
+    py::arg("T0"),
+    py::arg("dt"),
+    py::arg("n_steps"),
+    py::arg("theta"),
+    py::arg("save_every"),
+    py::arg("E"),
+    py::arg("nu"),
+    py::arg("alpha"),
+    py::arg("T_ref"),
+    py::arg("fixed_dofs"),
+    py::arg("fixed_displacements"));
 
 }
