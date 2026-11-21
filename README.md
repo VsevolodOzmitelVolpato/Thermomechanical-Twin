@@ -1,15 +1,38 @@
 # thermomech-twin
 
-A thermo-mechanical *digital twin* of a heated component: a C++ finite-element core, with a Python reduced-order model on top and uncertainty quantification planned. The goal is a small simulation stack in which every layer is checked against hand calculations, exact solutions and measured convergence orders before the next layer is built.
+[![CI](https://github.com/VsevolodOzmitelVolpato/thermomech-twin/actions/workflows/ci.yml/badge.svg)](https://github.com/VsevolodOzmitelVolpato/thermomech-twin/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
+![Python 3.13 and 3.14](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue.svg)
 
-**Status: work in progress.** The C++ core works in 1D and in 2D and is verified (see below): heat conduction, thermal expansion and thermal stress, the whole chain temperature -> displacement -> stress, and in 2D the von Mises stress. On top of it, a Python layer provides a reduced-order model of the 2D plate (see "Reduced-order model" below); uncertainty quantification is next.
+A thermo-mechanical *digital twin* of a heated component: a C++ finite-element core, with a Python reduced-order model and a Sobol sensitivity analysis on top. The goal is a small simulation stack in which every layer is checked against hand calculations, exact solutions and measured convergence orders before the next layer is built.
+
+**Status: the planned scope is complete.** The C++ core works in 1D and in 2D and is verified (see [Verification](#verification)): heat conduction, thermal expansion and thermal stress, the whole chain temperature -> displacement -> stress, and in 2D the von Mises stress. On top of it, a Python layer provides a reduced-order model of the 2D plate (see [Reduced-order model](#reduced-order-model)) and a Sobol sensitivity analysis of that model (see [Uncertainty quantification](#uncertainty-quantification)). What the project deliberately leaves out is listed in [Known limitations](#known-limitations).
+
+**Contents:** [Highlights](#highlights) | [What works today](#what-works-today) | [Build and test](#build-and-test) | [Examples](#examples) | [Verification](#verification) | [Convergence studies](#convergence-studies) | [Reduced-order model](#reduced-order-model) | [Uncertainty quantification](#uncertainty-quantification) | [Design notes](#design-notes) | [Known limitations](#known-limitations) | [License](#license)
+
+## Highlights
+
+- **A finite-element core written from scratch in C++17**, using only the standard library: CSR sparse matrices, conjugate gradient with a Jacobi preconditioner, linear elements in 1D and on triangles in 2D, theta-scheme time stepping, plane-strain thermo-elasticity and the von Mises stress.
+- **Checked at three levels:** hand calculations, exact solutions and measured convergence orders (see [Verification](#verification) and [Convergence studies](#convergence-studies)), with over 300 C++ tests (GoogleTest) and over 2000 Python test cases (pytest).
+- **A reduced-order model of the 2D plate** (proper orthogonal decomposition and Galerkin projection). With 12 modes it reproduces the full model to better than 4e-5 in relative L2 error (worst of 8 test runs), and one evaluation takes 3.8 to 4.6 ms instead of 1.7 s: 370 to 440 times less than this project's own C++ full model (see [What the speed-up means](#what-the-speed-up-means)).
+- **A Sobol sensitivity analysis on the reduced model:** 28672 evaluations in 58 seconds, where the full model would take about 3.8 hours (estimated from the time of one run). The peak temperature at the source depends mostly on the heat source (70 % of the variance) and the conductivity (29 %); the peak von Mises stress on Young's modulus and the expansion coefficient (50 % each).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rom_fields_dark.png">
+    <img src="docs/figures/rom_fields_light.png" alt="Temperature rise and von Mises stress at t = 300 s for the test run with the largest error: the C++ full model, the reduced-order model with 12 modes, and their difference, which has its own colour scale." width="880">
+  </picture>
+</p>
+
+*The full C++ model and the reduced-order model with 12 modes for the test run with the largest error, and their difference (see [Reduced-order model](#reduced-order-model)).*
 
 ## What works today
 
 - Sparse matrices in CSR format, Conjugate Gradient (CG) and Jacobi-preconditioned CG.
 - Dirichlet conditions by symmetric elimination, so the system matrix stays symmetric and CG applies (in 1D and in 2D).
 - Failures are reported, not hidden: `CGSolver` exposes `has_converged()`, and the heat and thermal-expansion solvers throw `std::runtime_error` when the linear solver does not converge (for example with NaN in the data) and `std::invalid_argument` when the data are inconsistent (wrong sizes, non-positive coefficients, nodes that do not exist, ...).
-- Over 300 unit tests (GoogleTest), a program that prints the convergence tables below, and a Python script that draws the figures from them.
+- Over 300 C++ unit tests (GoogleTest) and over 2000 Python test cases (pytest), a program that prints the convergence tables below, and Python scripts that draw the figures and run the benchmarks.
 
 **In 1D**
 
@@ -30,17 +53,28 @@ A thermo-mechanical *digital twin* of a heated component: a C++ finite-element c
 
 In both cases the coupling is one-way: heat deforms the body, the deformation does not heat it.
 
+**In Python**
+
+- `thermomech`, a [pybind11](https://github.com/pybind/pybind11) module that exposes the 2D solvers of the C++ core as Python functions on NumPy and SciPy objects: meshes, the assembled matrices, steady and transient heat conduction, and the whole thermo-mechanical chain.
+- The `twin` package, built on it: a proper-orthogonal-decomposition basis computed from snapshots (`pod_basis`), the Galerkin projection of the heat equation (`solve_reduced_heat`), the reduced-order model of the whole thermo-mechanical problem (`ThermoMechanicalROM`), and Sobol sensitivity indices with bootstrap confidence intervals (`sobol_indices`).
+
 ## Build and test
 
-Requirements: CMake 3.20 or newer and a C++17 compiler. Developed with GCC 14 (MinGW-w64, Windows); it also builds and passes all tests with GCC 13 on Linux. GoogleTest is downloaded by CMake the first time you configure, so an internet connection is needed once.
+Requirements: CMake 3.20 or newer, a C++17 compiler, and Python 3 with the packages of `requirements.txt` (NumPy, SciPy, Matplotlib, pytest; on Linux the Python development headers too, `python3-dev` on Debian and Ubuntu). Developed with GCC 14 (MinGW-w64, Windows) and Python 3.14; it also builds and passes all tests with GCC 13 on Linux, and a GitHub Actions workflow (`.github/workflows/ci.yml`) repeats the build and the tests on Linux with Python 3.13 and 3.14 at every push (the Windows build is checked by hand). GoogleTest and pybind11 are downloaded by CMake the first time you configure, so an internet connection is needed once.
 
 ```
+git clone https://github.com/VsevolodOzmitelVolpato/thermomech-twin.git
+cd thermomech-twin
+
+pip install -r requirements.txt
 cmake -S . -B build -G Ninja
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-`-G Ninja` is optional; any CMake generator works. To reproduce the tables below, run `./build/convergence_study` (`.\build\convergence_study.exe` on Windows). To redraw the figures from it, run `python scripts/plot_convergence.py` from the project folder (it needs matplotlib, `pip install matplotlib`; it writes into `docs/figures/`).
+`-G Ninja` is optional; any CMake generator works. The default build type is Release (the C++ model is about 15 times slower without optimisation); pass `-DCMAKE_BUILD_TYPE=...` when you configure to change it. `ctest` runs the C++ unit tests and the Python tests (`python/tests`, one CTest test called `python_tests`). The C++ core does not need Python: configure with `-DTWIN_BUILD_PYTHON=OFF` to skip the module and its tests.
+
+To reproduce the tables below, run `./build/convergence_study` (`.\build\convergence_study.exe` on Windows). To redraw the figures from it, run `python scripts/plot_convergence.py` from the project folder (it writes into `docs/figures/`). The reduced-order model and the sensitivity analysis have their own scripts, described in their sections.
 
 ## Examples
 
@@ -374,9 +408,154 @@ Three degrees of freedom are pinned to their exact values to remove the rigid mo
 
 The C++ core is exposed to Python as the module `thermomech` (pybind11). On top of it, the package `python/twin/` builds a reduced-order model (ROM) of the 2D thermo-mechanical plate: a model that gives the temperature, displacement and stress of the plate for new values of the material numbers in milliseconds instead of seconds, at the price of a small, measured error. The question it answers is how much of the cost of the full model can be removed when the same plate has to be solved thousands of times with different numbers, as in an uncertainty study, and what that costs in accuracy.
 
+### How it works
+
+The ROM is built once (the *offline* phase, `ThermoMechanicalROM(...)`) and then evaluated for every set of numbers (the *online* phase, `rom.solve(...)`).
+
+**Offline.**
+
+1. The C++ heat solver runs for a few training sets of `(k, rho_c, q)`, and the temperature fields it produces are collected (the snapshots).
+2. The proper orthogonal decomposition (`twin.pod`, weighted with the mass matrix) turns the snapshots into `r` thermal modes, orthonormal in the mass inner product and ordered by importance: the columns of a matrix `B`.
+3. The heat equation is projected on the modes (Galerkin). With `T = lift + B a`, where `lift` holds the imposed boundary temperatures and `a` is a vector of `r` numbers, the equation of the plate becomes an equation for `a`:
+
+   `rho_c (B^T M1 B) a' + k (B^T K1 B) a = q (B^T f1) - k (B^T K1 lift)`
+
+   `M1`, `K1` and `f1` are the mass matrix (for `rho_c = 1`), the stiffness matrix (for `k = 1`) and the heat load (for `q = 1`) of the full model. Every bracket is an `r x r` matrix or a vector of `r` numbers that does not depend on the parameters, so it is computed once; the parameters only multiply it.
+4. Displacement and stress are linear in the temperature, so `r + 1` elasticity solves of the C++ code (one for the imposed temperatures and one for each mode, with `E = 1` and `alpha = 1`) give a displacement mode and a stress mode for every thermal mode.
+
+**Online.** One run of the theta scheme on the `r x r` system gives `a(t)`, and the fields are the precomputed modes weighted with `a(t)`. `E` and `alpha` do not enter the system at all: the temperature does not depend on them, the displacement is proportional to `alpha` and the stress to `E alpha`, so these two numbers are exact for any value, not approximated. There is no C++ call and no matrix of the size of the mesh.
+
+```python
+from twin.pod import pod_basis
+from twin.rom import ThermoMechanicalROM
+
+mass = thermomech.assemble_mass_2d(mesh, 1.0)
+basis, singular_values = pod_basis(snapshots, mass, 12)       # snapshots: one column per snapshot
+rom = ThermoMechanicalROM(mesh, basis, load, fixed_nodes, fixed_values, T0, clamped_dofs, nu, T_ref)
+
+result = rom.solve(k=45.0, rho_c=3.8e6, q=2.0e6, E=200e9, alpha=12e-6, dt=3.0, n_steps=100, theta=1.0, save_every=10)
+# result["T"], result["u"], result["sigma"], result["von_mises"]: the fields of thermomech.solve_thermomechanical_2d
+```
+
+### Benchmark
+
+The ROM is tested against the C++ full model on parameter sets that were not used to build it. `scripts/rom_benchmark.py` prints the tables below and draws the figures; all the tables are also saved in `docs/rom_tables.md`.
+
+#### Benchmark problem
+
+| item        | description                                                                                                                |
+|:------------|:---------------------------------------------------------------------------------------------------------------------------|
+| plate       | 200 mm x 100 mm, steel, plane strain; left edge clamped, the other edges free                                              |
+| mesh        | 64 x 32 cells, 2145 nodes, 4096 triangles                                                                                  |
+| temperature | rise above ambient; edges held at 0 K except the left one, 40 K * sin(pi y / H); the plate starts from the boundary values |
+| heat source | Gaussian of width 25 mm centred at (140, 50) mm, peak value q                                                              |
+| time        | backward Euler, dt = 3 s, 100 steps (300 s), 11 states kept                                                                |
+| parameters  | k 36-54 W/(m K), rho_c 3.42-4.18 MJ/(m3 K), q 1.4-2.6 MW/m3, E 180-220 GPa, alpha 10.8-13.2 1e-6/K                         |
+| training    | 16 heat runs of the C++ solver, (k, rho_c, q) from a Sobol sequence: 336 snapshots (21 per run)                            |
+| test        | 8 other runs of the full C++ model, the five parameters from another Sobol sequence                                        |
+| machine     | Windows-11-10.0.26200-SP0, Python 3.14.7, NumPy 2.5.4                                                                      |
+
+**The error** is the relative L2 error `||X_rom - X_full|| / ||X_full||` over all the kept states, where `X` is the temperature, the displacement, the stress or the von Mises stress, and the full model is the C++ solution on the same mesh. Each entry is the worst of the 8 test runs.
+
+**The times** are those of the machine in the table, with the C++ module built in Release mode (optimisation on). The time of one run of the full model is the median of the 8 test runs, and the time of one run of the ROM is the median of repeated runs of the same 8.
+
+#### Accuracy against the number of modes (worst of 8 test runs, relative L2 error)
+
+| modes | sigma_r / sigma_1 |        T |        u |   stress | von Mises |
+|------:|------------------:|---------:|---------:|---------:|----------:|
+|     1 |          1.00e+00 | 2.58e-01 | 2.12e-01 | 1.80e-01 |  2.34e-01 |
+|     2 |          1.30e-01 | 7.86e-02 | 6.08e-02 | 6.75e-02 |  6.45e-02 |
+|     3 |          5.62e-02 | 1.94e-02 | 9.06e-03 | 2.02e-02 |  1.44e-02 |
+|     4 |          1.91e-02 | 4.55e-03 | 1.27e-03 | 5.50e-03 |  3.80e-03 |
+|     5 |          3.34e-03 | 1.39e-03 | 3.91e-04 | 1.57e-03 |  8.93e-04 |
+|     6 |          1.03e-03 | 1.20e-03 | 2.60e-04 | 1.43e-03 |  8.39e-04 |
+|     8 |          9.82e-05 | 1.94e-04 | 4.60e-05 | 2.13e-04 |  1.39e-04 |
+|    10 |          1.40e-05 | 6.11e-05 | 9.61e-06 | 7.66e-05 |  3.88e-05 |
+|    12 |          1.68e-06 | 3.10e-05 | 4.70e-06 | 3.87e-05 |  1.79e-05 |
+
+`sigma_r / sigma_1` is the singular value of mode `r` of the training snapshots, relative to the first one. The table in `docs/rom_tables.md` has two more columns, the time of one ROM run (3.8 to 4.6 ms) and the speed-up (370 to 440), for every row.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rom_accuracy_dark.png">
+    <img src="docs/figures/rom_accuracy_light.png" alt="Reduced-order model: singular values of the training snapshots against the mode number (left), and relative L2 error of the temperature, displacement, stress and von Mises stress against the number of modes (right), on logarithmic vertical axes." width="880">
+  </picture>
+</p>
+
+**Reading the table.**
+- The error of every field falls by about four orders of magnitude from 1 to 12 modes: from 18-26% with one mode, to about 1-2% with three, between 3e-4 and 1.4e-3 with six, and between 5e-6 (displacement) and 4e-5 (stress) with twelve. From 3 modes on, the displacement is the most accurate field and the stress the least.
+- The error does not fall at every step: from 5 to 6 modes the temperature error goes from 1.39e-3 to 1.20e-3 only. The modes are ordered by how well they describe the 16 training runs, not the 8 test runs.
+- The singular values only measure how well the modes reproduce the training runs. The temperature error is below the singular value of the last mode up to 5 modes and above it from 6 modes on; with 12 modes it is 3.1e-5 against 1.7e-6. The error on parameter sets that are not in the training set is the one that matters, and it is the one reported here.
+
+#### Offline cost, paid once (ROM with 12 modes)
+
+| step                                            |  time | in full-model runs |
+|:------------------------------------------------|------:|-------------------:|
+| training: 16 heat runs (C++)                    | 9.3 s |               5.55 |
+| POD: basis of 12 modes                          | 71 ms |               0.04 |
+| ROM: projection and 13 elasticity solves (C++)  | 1.6 s |               0.96 |
+| offline, total                                  |  11 s |               6.55 |
+| one run of the full model (heat and elasticity) | 1.7 s |               1.00 |
+
+**Cost.** On the machine of the benchmark one run of the full model takes 1.7 s and one run of the ROM takes between 3.8 and 4.6 ms, for every number of modes in the table (1 to 12): 370 to 440 times less. The offline phase costs 11 s, the equivalent of 6.55 runs of the full model, so the ROM is cheaper than the full model, offline phase included, from 7 evaluations on.
+
+- 10^5 evaluations: about 2 days with the full model, about 8 minutes with the ROM (360 times less).
+- 10^6 evaluations: 19 days with the full model, 1.3 hours with the ROM (360 times less).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rom_cost_dark.png">
+    <img src="docs/figures/rom_cost_light.png" alt="Time of N evaluations of the C++ full model and of the reduced-order model with the offline phase included, against N, on logarithmic axes. The full model grows in proportion to N, from 1.7 seconds for one evaluation to 19 days for a million. The reduced model starts at its offline cost of 11 seconds, stays below 20 seconds up to about a thousand evaluations and then also grows in proportion to N, to 1.3 hours for a million. The two lines cross at 7 evaluations." width="880">
+  </picture>
+</p>
+
+#### What the speed-up means
+
+The full model is this project's own C++ code, built in Release mode. It solves every linear system with its own Jacobi-preconditioned conjugate gradient and it assembles the elastic stiffness matrix again for every kept state (see [Known limitations](#known-limitations)). A production code (a direct sparse solver or multigrid, matrices built once) could be considerably faster, and the speed-up of the ROM would shrink in the same proportion: read 370 to 440 as the figure for this baseline, not as a general one. Two results depend much less on the baseline, because the offline phase is itself made of C++ solves: its cost in full-model runs (6.55) and the break-even point (7 evaluations). The times are those of one machine and will be different on another.
+
+#### The fields of the worst test run
+
+The fields of the test run with the largest error, at the end of the run:
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rom_fields_dark.png">
+    <img src="docs/figures/rom_fields_light.png" alt="Temperature rise and von Mises stress at t = 300 s for the test run with the largest error: the C++ full model, the reduced-order model with 12 modes, and their difference, which has its own colour scale." width="880">
+  </picture>
+</p>
+
+The two models cannot be told apart by eye; the third column shows their difference, on its own colour scale. The thick line on the left edge marks the clamped edge.
+
+### Limits of the reduced model
+
+- It is valid inside the box of the training runs: `k`, `rho_c` and `q` within the ranges of the benchmark table. Outside the box nothing is claimed. `E` and `alpha` are exact for any value, as explained above.
+- The plate, the mesh, the boundary conditions, the shape of the heat source (only its amplitude `q` changes), `nu` and `T_ref` are fixed when the model is built.
+- The reference is the full model on the same mesh. The ROM reproduces it; it does not remove its discretisation error (see [Convergence studies](#convergence-studies)).
+- The error is measured on 8 test runs and the worst of them is reported: an estimate, not a bound. The ROM has no error estimate of its own, so it cannot tell, for a given run, how accurate it is.
+- It inherits the assumptions of the full model: plane strain, linear elasticity, one-way coupling.
+
+### Reproduce the benchmark
+
+```
+# build in Release mode: without optimisation the C++ model is about 15 times slower
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build                  # builds the Python module too, into build/python
+
+pip install -r requirements.txt
+
+# under a minute: prints the tables, writes docs/rom_tables.md and docs/figures/rom_*.png
+python scripts/rom_benchmark.py
+
+# a coarse mesh and few runs, a few seconds: only to check that everything works
+python scripts/rom_benchmark.py --quick
+```
+
+The Python tests (`python/tests`) run as the CTest test `python_tests`: `ctest --test-dir build -R python_tests --output-on-failure`.
+
+
 ## Uncertainty quantification
 
-The material numbers of the plate are never known exactly. This section asks how uncertain the temperature, the stress and the displacement of the plate are when those numbers are uncertain, and which of the numbers is responsible. The tool is a Sobol sensitivity analysis on the reduced-order model of the previous section: the five numbers are drawn at random, the ROM is run for every draw, and the variance of each result is split among the numbers. The study needs 28672 runs of the model. The ROM does them in 11 minutes, offline phase included; the C++ full model would need about 2.3 days (an estimate, see the cost below).
+The material numbers of the plate are never known exactly. This section asks how uncertain the temperature, the stress and the displacement of the plate are when those numbers are uncertain, and which of the numbers is responsible. The tool is a Sobol sensitivity analysis on the reduced-order model of the previous section: the five numbers are drawn at random, the ROM is run for every draw, and the variance of each result is split among the numbers. The study needs 28672 runs of the model. The ROM does them in 58 seconds, offline phase included; the C++ full model would need about 3.8 hours (an estimate, see the cost below).
 
 ### How it works
 
@@ -508,25 +687,25 @@ The intervals are conservative. The bootstrap treats the points as random draws,
 
 ### Cost of the study
 
-|    n |  runs |     ROM | C++ full model | ratio |
-|-----:|------:|--------:|---------------:|------:|
-|  128 |   896 | 2.4 min |          1.8 h |    44 |
-|  256 |  1792 | 2.7 min |          3.5 h |    78 |
-|  512 |  3584 | 3.2 min |          7.0 h |   130 |
-| 1024 |  7168 | 4.3 min |           14 h |   200 |
-| 2048 | 14336 | 6.4 min |       1.2 days |   260 |
-| 4096 | 28672 |  11 min |       2.3 days |   310 |
+|    n |  runs |  ROM | C++ full model | ratio |
+|-----:|------:|-----:|---------------:|------:|
+|  128 |   896 | 12 s |        7.0 min |    34 |
+|  256 |  1792 | 14 s |         14 min |    61 |
+|  512 |  3584 | 17 s |         28 min |   100 |
+| 1024 |  7168 | 23 s |         56 min |   150 |
+| 2048 | 14336 | 34 s |          1.9 h |   200 |
+| 4096 | 28672 | 58 s |          3.8 h |   230 |
 
-One run of the ROM takes 17.92 ms and one run of the full model 7.0 s (the median of the 16 runs of the check above). Both keep only the last state, which is all the study needs: the 23 s of the benchmark above is for 11 kept states, each with its own elasticity solve. The full model was not run 28672 times: its column is the number of runs times 7.0 s. The ROM column is the offline phase (2.1 min) plus the runs.
+One run of the ROM takes 1.63 ms and one run of the full model 472 ms (the median of the 16 runs of the check above). Both keep only the last state, which is all the study needs: the 1.7 s of the benchmark above is for 11 kept states, each with its own elasticity solve. The full model was not run 28672 times: its column is the number of runs times 0.472 s. The ROM column is the offline phase (11 s) plus the runs.
 
-- The ROM is cheaper than the full model, offline phase included, from about 18 runs on: 2.1 min / (7.0 s - 17.9 ms).
-- At n = 4096 the study takes 11 minutes instead of 2.3 days, 310 times less. The ratio grows with n towards 390, the ratio of the two run times, because the offline phase is shared among more runs.
-- The caveat of the previous section applies: the full model is this project's own C++ code with default settings, so read the ratio as the figure for this baseline. The times are those of one machine (Windows 11, Python 3.14.7, NumPy 2.5.4, SciPy 1.18.1).
+- The ROM is cheaper than the full model, offline phase included, from 24 runs on: the break-even is 11 s / (0.472 s - 1.63 ms) = 23.4 runs.
+- At n = 4096 the study takes 58 seconds instead of 3.8 hours, 230 times less. The ratio grows with n towards 290, the ratio of the two run times, because the offline phase is shared among more runs.
+- The caveat of [the previous section](#what-the-speed-up-means) applies: the full model is this project's own C++ code (Release build, its own conjugate gradient solver), so read the ratio as the figure for this baseline. The times are those of one machine (Windows 11, Python 3.14.7, NumPy 2.5.4, SciPy 1.18.1).
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/figures/uq_convergence_dark.png">
-    <img src="docs/figures/uq_convergence_light.png" alt="Left: the largest half-width of the 95 % intervals of the indices against n, on logarithmic axes, for the three results; it falls from 0.16 at n = 128 to between 0.027 and 0.036 at n = 4096, roughly parallel to a 1 / sqrt(n) line. Right: time of the study against n on logarithmic axes: the C++ full model (estimated) grows in proportion to n from 1.8 hours to 2.3 days, the ROM with its offline phase goes from 2.4 to 11 minutes." width="880">
+    <img src="docs/figures/uq_convergence_light.png" alt="Left: the largest half-width of the 95 % intervals of the indices against n, on logarithmic axes, for the three results; it falls from 0.16 at n = 128 to between 0.027 and 0.036 at n = 4096, roughly parallel to a 1 / sqrt(n) line. Right: time of the study against n on logarithmic axes: the C++ full model (estimated) grows in proportion to n from 7 minutes to 3.8 hours, the ROM with its offline phase goes from 12 to 58 seconds." width="880">
   </picture>
 </p>
 
@@ -535,159 +714,28 @@ One run of the ROM takes 17.92 ms and one run of the full model 7.0 s (the media
 - The ranges and the distributions are assumptions: five independent numbers, uniform on the ranges of the first table, not measured spreads. A Sobol index is the importance of a number within its range and distribution; other ranges, other distributions or correlated numbers would give other indices.
 - The three results are maxima read at t = 300 s, and the temperature is read within 25 mm of the source, not over the whole plate. What the study says about `rho_c` holds for this reading time only.
 - The ROM is valid inside the box of its training runs, which is the box of the study. The comparison with the full model is made on 16 points: an estimate, not a bound.
-- The reference is the full model on the same mesh, so the discretisation error is not part of the uncertainty (see the convergence studies), and neither are the assumptions of the model (plane strain, linear elasticity, one-way coupling).
+- The reference is the full model on the same mesh, so the discretisation error is not part of the uncertainty (see [Convergence studies](#convergence-studies)), and neither are the assumptions of the model (plane strain, linear elasticity, one-way coupling).
 - The 95 % intervals describe the sampling error of the indices only. They say nothing about the error of the ROM or of the model.
 
 ### Reproduce the study
 
 ```
-cmake --build build                  # as for the ROM benchmark
+cmake --build build                  # as for the ROM benchmark (Release build)
 
-# about 15 minutes: prints the tables, writes docs/uq_tables.md and docs/figures/uq_*.png
+# about 80 seconds: prints the tables, writes docs/uq_tables.md and docs/figures/uq_*.png
 python scripts/uq_sobol.py
 
-# a coarse mesh and a small sample, about a minute: only to check (it overwrites the tables and the figures)
+# a coarse mesh and a small sample, a few seconds: only to check (it overwrites the tables and the figures)
 python scripts/uq_sobol.py --quick
 
 # tables and figures again from the last run (build/uq_results.pkl), without repeating it
 python scripts/uq_sobol.py --redraw
 
-# half the size (n is a power of 2), about half the time
+# half the size (n is a power of 2): the runs of the ROM take half the time
 python scripts/uq_sobol.py --n 2048
 ```
 
 `sobol_indices` and `rom_quantities` have their own tests: `python/tests/test_sobol.py` and `python/tests/test_uq.py`.
-
-### How it works
-
-The ROM is built once (the *offline* phase, `ThermoMechanicalROM(...)`) and then evaluated for every set of numbers (the *online* phase, `rom.solve(...)`).
-
-**Offline.**
-
-1. The C++ heat solver runs for a few training sets of `(k, rho_c, q)`, and the temperature fields it produces are collected (the snapshots).
-2. The proper orthogonal decomposition (`twin.pod`, weighted with the mass matrix) turns the snapshots into `r` thermal modes, orthonormal in the mass inner product and ordered by importance: the columns of a matrix `B`.
-3. The heat equation is projected on the modes (Galerkin). With `T = lift + B a`, where `lift` holds the imposed boundary temperatures and `a` is a vector of `r` numbers, the equation of the plate becomes an equation for `a`:
-
-   `rho_c (B^T M1 B) a' + k (B^T K1 B) a = q (B^T f1) - k (B^T K1 lift)`
-
-   `M1`, `K1` and `f1` are the mass matrix (for `rho_c = 1`), the stiffness matrix (for `k = 1`) and the heat load (for `q = 1`) of the full model. Every bracket is an `r x r` matrix or a vector of `r` numbers that does not depend on the parameters, so it is computed once; the parameters only multiply it.
-4. Displacement and stress are linear in the temperature, so `r + 1` elasticity solves of the C++ code (one for the imposed temperatures and one for each mode, with `E = 1` and `alpha = 1`) give a displacement mode and a stress mode for every thermal mode.
-
-**Online.** One run of the theta scheme on the `r x r` system gives `a(t)`, and the fields are the precomputed modes weighted with `a(t)`. `E` and `alpha` do not enter the system at all: the temperature does not depend on them, the displacement is proportional to `alpha` and the stress to `E alpha`, so these two numbers are exact for any value, not approximated. There is no C++ call and no matrix of the size of the mesh.
-
-```python
-from twin.pod import pod_basis
-from twin.rom import ThermoMechanicalROM
-
-mass = thermomech.assemble_mass_2d(mesh, 1.0)
-basis, singular_values = pod_basis(snapshots, mass, 12)       # snapshots: one column per snapshot
-rom = ThermoMechanicalROM(mesh, basis, load, fixed_nodes, fixed_values, T0, clamped_dofs, nu, T_ref)
-
-result = rom.solve(k=45.0, rho_c=3.8e6, q=2.0e6, E=200e9, alpha=12e-6, dt=3.0, n_steps=100, theta=1.0, save_every=10)
-# result["T"], result["u"], result["sigma"], result["von_mises"]: the fields of thermomech.solve_thermomechanical_2d
-```
-
-### Benchmark
-
-The ROM is tested against the C++ full model on parameter sets that were not used to build it. `scripts/rom_benchmark.py` prints the tables below and draws the figures; all the tables are also saved in `docs/rom_tables.md`.
-
-#### Benchmark problem
-
-| item        | description                                                                                                                |
-|:------------|:---------------------------------------------------------------------------------------------------------------------------|
-| plate       | 200 mm x 100 mm, steel, plane strain; left edge clamped, the other edges free                                              |
-| mesh        | 64 x 32 cells, 2145 nodes, 4096 triangles                                                                                  |
-| temperature | rise above ambient; edges held at 0 K except the left one, 40 K * sin(pi y / H); the plate starts from the boundary values |
-| heat source | Gaussian of width 25 mm centred at (140, 50) mm, peak value q                                                              |
-| time        | backward Euler, dt = 3 s, 100 steps (300 s), 11 states kept                                                                |
-| parameters  | k 36-54 W/(m K), rho_c 3.42-4.18 MJ/(m3 K), q 1.4-2.6 MW/m3, E 180-220 GPa, alpha 10.8-13.2 1e-6/K                         |
-| training    | 16 heat runs of the C++ solver, (k, rho_c, q) from a Sobol sequence: 336 snapshots (21 per run)                            |
-| test        | 8 other runs of the full C++ model, the five parameters from another Sobol sequence                                        |
-| machine     | Windows-11-10.0.26200-SP0, Python 3.14.7, NumPy 2.5.4                                                                      |
-
-**The error** is the relative L2 error `||X_rom - X_full|| / ||X_full||` over all the kept states, where `X` is the temperature, the displacement, the stress or the von Mises stress, and the full model is the C++ solution on the same mesh. Each entry is the worst of the 8 test runs.
-
-#### Accuracy against the number of modes (worst of 8 test runs, relative L2 error)
-
-| modes | sigma_r / sigma_1 |        T |        u |   stress | von Mises |
-|------:|------------------:|---------:|---------:|---------:|----------:|
-|     1 |          1.00e+00 | 2.58e-01 | 2.12e-01 | 1.80e-01 |  2.34e-01 |
-|     2 |          1.30e-01 | 7.86e-02 | 6.08e-02 | 6.75e-02 |  6.45e-02 |
-|     3 |          5.62e-02 | 1.94e-02 | 9.06e-03 | 2.02e-02 |  1.44e-02 |
-|     4 |          1.91e-02 | 4.55e-03 | 1.27e-03 | 5.50e-03 |  3.80e-03 |
-|     5 |          3.34e-03 | 1.39e-03 | 3.91e-04 | 1.57e-03 |  8.93e-04 |
-|     6 |          1.03e-03 | 1.20e-03 | 2.60e-04 | 1.43e-03 |  8.39e-04 |
-|     8 |          9.82e-05 | 1.94e-04 | 4.60e-05 | 2.13e-04 |  1.39e-04 |
-|    10 |          1.40e-05 | 6.11e-05 | 9.61e-06 | 7.66e-05 |  3.88e-05 |
-|    12 |          1.68e-06 | 3.10e-05 | 4.70e-06 | 3.87e-05 |  1.79e-05 |
-
-`sigma_r / sigma_1` is the singular value of mode `r` of the training snapshots, relative to the first one. The table in `docs/rom_tables.md` has two more columns, the time of one ROM run and the speed-up, for every row.
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rom_accuracy_dark.png">
-    <img src="docs/figures/rom_accuracy_light.png" alt="Reduced-order model: singular values of the training snapshots against the mode number (left), and relative L2 error of the temperature, displacement, stress and von Mises stress against the number of modes (right), on logarithmic vertical axes." width="880">
-  </picture>
-</p>
-
-**Reading the table.**
-- The error of every field falls by about four orders of magnitude from 1 to 12 modes: from 18-26% with one mode, to about 1-2% with three, between 3e-4 and 1.4e-3 with six, and between 5e-6 (displacement) and 4e-5 (stress) with twelve. From 3 modes on, the displacement is the most accurate field and the stress the least.
-- The error does not fall at every step: from 5 to 6 modes the temperature error goes from 1.39e-3 to 1.20e-3 only. The modes are ordered by how well they describe the 16 training runs, not the 8 test runs.
-- The singular values only measure how well the modes reproduce the training runs. The temperature error is below the singular value of the last mode up to 5 modes and above it from 6 modes on; with 12 modes it is 3.1e-5 against 1.7e-6. The error on parameter sets that are not in the training set is the one that matters, and it is the one reported here.
-
-#### Offline cost, paid once (ROM with 12 modes)
-
-| step                                            |    time | in full-model runs |
-|:------------------------------------------------|--------:|-------------------:|
-| training: 16 heat runs (C++)                    | 1.7 min |               4.37 |
-| POD: basis of 12 modes                          |   94 ms |               0.00 |
-| ROM: projection and 13 elasticity solves (C++)  |    22 s |               0.93 |
-| offline, total                                  | 2.1 min |               5.31 |
-| one run of the full model (heat and elasticity) |    23 s |               1.00 |
-
-**Cost.** On the machine of the benchmark one run of the full model takes 23 s and one run of the ROM takes between 17 and 22 ms, whatever the number of modes (1 to 12): 1100 to 1300 times less. The offline phase costs 2.1 minutes, the equivalent of 5.3 runs of the full model, so the ROM is cheaper than the full model, offline phase included, from 6 evaluations on.
-
-- 10^5 evaluations: 27 days with the full model, 35 minutes with the ROM (1100 times less).
-- 10^6 evaluations: 272 days with the full model, 5.6 hours with the ROM (1200 times less).
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rom_cost_dark.png">
-    <img src="docs/figures/rom_cost_light.png" alt="Time of N evaluations of the C++ full model and of the reduced-order model with the offline phase included, against N, on logarithmic axes: the full model grows in proportion to N, the reduced model starts at its offline cost and stays almost flat, and the two lines cross at 6 evaluations." width="880">
-  </picture>
-</p>
-
-**What the speed-up means.** The full model is this project's own C++ code, built with the default CMake settings (no optimisation flags). It solves every linear system with its own Jacobi-preconditioned conjugate gradient and it assembles the elastic stiffness matrix again for every kept state (see Known limitations). A production code (optimised build, a direct sparse solver or multigrid, matrices built once) could be much faster, and the speed-up of the ROM would shrink in the same proportion: read 1100 to 1300 as the figure for this baseline, not as a general one. Two results hardly depend on the baseline, because the offline phase is itself made of C++ solves: its cost in full-model runs (5.3) and the break-even point (6 evaluations). The times are those of one machine and will be different on another.
-
-The fields of the test run with the largest error, at the end of the run:
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rom_fields_dark.png">
-    <img src="docs/figures/rom_fields_light.png" alt="Temperature rise and von Mises stress at t = 300 s for the test run with the largest error: the C++ full model, the reduced-order model with 12 modes, and their difference, which has its own colour scale." width="880">
-  </picture>
-</p>
-
-The two models cannot be told apart by eye; the third column shows their difference, on its own colour scale. The thick line on the left edge marks the clamped edge.
-
-### Limits of the reduced model
-
-- It is valid inside the box of the training runs: `k`, `rho_c` and `q` within the ranges of the benchmark table. Outside the box nothing is claimed. `E` and `alpha` are exact for any value, as explained above.
-- The plate, the mesh, the boundary conditions, the shape of the heat source (only its amplitude `q` changes), `nu` and `T_ref` are fixed when the model is built.
-- The reference is the full model on the same mesh. The ROM reproduces it; it does not remove its discretisation error (see the convergence studies).
-- The error is measured on 8 test runs and the worst of them is reported: an estimate, not a bound. The ROM has no error estimate of its own, so it cannot tell, for a given run, how accurate it is.
-- It inherits the assumptions of the full model: plane strain, linear elasticity, one-way coupling.
-
-### Reproduce the benchmark
-
-```
-cmake --build build                       # builds the Python module too, into build/python
-pip install numpy scipy matplotlib pytest
-python scripts/rom_benchmark.py           # a few minutes: prints the tables, writes docs/rom_tables.md and docs/figures/rom_*.png
-python scripts/rom_benchmark.py --quick   # a coarse mesh and few runs, only to check that everything works
-```
-
-The Python tests (`python/tests`) run as the CTest test `python_tests`: `ctest --test-dir build -R python_tests --output-on-failure`.
 
 ## Project layout
 
@@ -699,13 +747,16 @@ include/        CSR_and_Vectors.h, CGSolver.h, JacobiPreconditioner.h, Triplets.
                 Elasticity2D.h, Thermoelastic2D.h                                   2D thermo-elasticity and von Mises
 src/            implementations, one .cpp for every header
 tests/          GoogleTest unit tests, grouped by topic
-apps/           convergence_study.cpp  (prints the tables above)
-scripts/        plot_convergence.py    (draws the figures from those tables)
-docs/figures/   the figures of this README, in a light and a dark version
-python/ bindings.cpp (module thermomech)
-twin/ (POD, reduced model)
-tests/ (pytest)
-scripts/ rom_benchmark.py (ROM tables and figures).
+apps/           convergence_study.cpp     prints the convergence tables above
+python/         bindings.cpp              the pybind11 module thermomech
+                twin/                     POD, Galerkin projection, reduced model, Sobol indices
+                tests/                    pytest tests of the module and of the package
+scripts/        plot_convergence.py       draws the figures of the convergence studies
+                rom_benchmark.py          reduced-order model: tables, figures, timings
+                uq_sobol.py               Sobol study on the reduced model: tables, figures
+docs/           rom_tables.md, uq_tables.md   the tables written by the two scripts above
+                figures/                  the figures of this README, in a light and a dark version
+.github/        workflows/ci.yml          build and tests on every push
 ```
 
 ## Design notes
@@ -727,13 +778,16 @@ scripts/ rom_benchmark.py (ROM tables and figures).
 
 Done: the 1D layer; the 2D layer with sparse assembly, thermo-elasticity and von Mises stress; the Python interface; a POD reduced-order model; Sobol sensitivity analysis on the reduced model.
 
-Ideas for the future (see Known limitations): convection and heat-flux boundary conditions, matrices of the full model built once and reused, an error estimate for the reduced model.
+Ideas for the future (see [Known limitations](#known-limitations)): convection and heat-flux boundary conditions, matrices of the full model built once and reused, an error estimate for the reduced model.
 
-Planned, in this order:
+## How this was built
 
-1. Python interface and a proper-orthogonal-decomposition (POD) reduced-order model.
-2. Sobol sensitivity analysis on the reduced model.
+I built the project step by step, with Claude (Anthropic) as a tutor and reviewer. Every step started from a test written first, and the code had to pass it. Claude wrote the tests, the plotting and benchmark scripts and the first drafts of the documentation, and wrote part of the Python layer; the C++ core was written by me. Every number and every figure in this README comes from running the code in this repository.
 
 ## Author
 
-Vsevolod Ozmitel Volpato, (for my contacts see my main github page)
+Vsevolod Ozmitel Volpato ([github.com/VsevolodOzmitelVolpato](https://github.com/VsevolodOzmitelVolpato); my contacts are on that page).
+
+## License
+
+MIT, see [LICENSE](LICENSE).
