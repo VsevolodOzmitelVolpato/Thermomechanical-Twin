@@ -1,5 +1,15 @@
 build/
-.vscode/
-InstallationLog.txt
+Testing/
 __pycache__/
+*.pyc
 .pytest_cache/
+.ruff_cache/
+.venv/
+*.log
+InstallationLog.txt
+
+# editor and system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
