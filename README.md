@@ -782,7 +782,7 @@ Ideas for the future (see [Known limitations](#known-limitations)): convection a
 
 ## How this was built
 
-I built the project step by step, with Claude (Anthropic) as a tutor and reviewer. Every step started from a test written first, and the code had to pass it. Claude wrote the tests, the plotting and benchmark scripts and the first drafts of the documentation, and wrote part of the Python layer; the C++ core was written by me. Every number and every figure in this README comes from running the code in this repository.
+I built the project step by step, with Claude (Anthropic) as a reviewer. Every step started from a code written first, and the Claude wrote the test part. Moreover, Claude wrote the first drafts of the documentation, but the rest (C++ core, python scripts...) was written by me.
 
 ## Author
 
