@@ -1,6 +1,6 @@
-# thermomech-twin
+# Thermomechanical-Twin
 
-[![CI](https://github.com/VsevolodOzmitelVolpato/thermomech-twin/actions/workflows/ci.yml/badge.svg)](https://github.com/VsevolodOzmitelVolpato/thermomech-twin/actions/workflows/ci.yml)
+[![CI](https://github.com/VsevolodOzmitelVolpato/Thermomechanical-Twin/actions/workflows/ci.yml/badge.svg)](https://github.com/VsevolodOzmitelVolpato/Thermomechanical-Twin/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![Python 3.13 and 3.14](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue.svg)
@@ -63,8 +63,8 @@ In both cases the coupling is one-way: heat deforms the body, the deformation do
 Requirements: CMake 3.20 or newer, a C++17 compiler, and Python 3 with the packages of `requirements.txt` (NumPy, SciPy, Matplotlib, pytest; on Linux the Python development headers too, `python3-dev` on Debian and Ubuntu). Developed with GCC 14 (MinGW-w64, Windows) and Python 3.14; it also builds and passes all tests with GCC 13 on Linux, and a GitHub Actions workflow (`.github/workflows/ci.yml`) repeats the build and the tests on Linux with Python 3.13 and 3.14 at every push (the Windows build is checked by hand). GoogleTest and pybind11 are downloaded by CMake the first time you configure, so an internet connection is needed once.
 
 ```
-git clone https://github.com/VsevolodOzmitelVolpato/thermomech-twin.git
-cd thermomech-twin
+git clone https://github.com/VsevolodOzmitelVolpato/Thermomechanical-Twin.git
+cd Thermomechanical-Twin
 
 pip install -r requirements.txt
 cmake -S . -B build -G Ninja
