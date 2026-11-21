@@ -5,7 +5,7 @@
 
 DVector assemble_thermal_load(const std::vector<double>& x, double E, double alpha, const DVector& T, double T_ref) {
     if ( T.size() != x.size()){
-        throw std::invalid_argument("The two vectors have different sizes");}
+        throw std::invalid_argument("T must have one value per node of the bar");}
 
     DVector f (x.size(), 0.0);
 
@@ -20,10 +20,10 @@ DVector assemble_thermal_load(const std::vector<double>& x, double E, double alp
 
 DVector solve_thermal_expansion(const std::vector<double>& x, double E, double alpha, const DVector& T, double T_ref, RightEnd right_end) {
     if( x.size() < 2){
-        throw std::invalid_argument("Vector has one argument");
+        throw std::invalid_argument("The bar must have at least 2 nodes");
     }
     if( !(E > 0)){
-        throw std::invalid_argument("K argument is not valid");
+        throw std::invalid_argument("E must be positive");
     }
 
     size_t n = x.size();
@@ -42,7 +42,7 @@ DVector solve_thermal_expansion(const std::vector<double>& x, double E, double a
     CG.solve(true);
 
     if(!CG.has_converged()){
-        throw std::runtime_error("The solution has not converged");
+        throw std::runtime_error("CG has not converged");
     }
 
     return CG.get_solution() ;
@@ -50,7 +50,7 @@ DVector solve_thermal_expansion(const std::vector<double>& x, double E, double a
 
 DVector element_stress(const std::vector<double>& x, double E, double alpha, const DVector& T, double T_ref, const DVector& u) {
     if((u.size() != x.size()) || (T.size() != x.size())){
-        throw std::invalid_argument("The vectors have different sizes");
+        throw std::invalid_argument("T and u must have one value per node of the bar");
     }
     
     DVector sigma;

@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(thermomech_twin LANGUAGES CXX)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,7 +26,7 @@ add_library(twin_core
     src/Thermoelastic2D.cpp)
 target_include_directories(twin_core PUBLIC include)
 target_compile_options(twin_core PRIVATE -Wall -Wextra -Werror=return-type)
-# Programma che stampa le tabelle di convergenza (per il README).
+# Program that prints the convergence tables (for the README).
 add_executable(convergence_study apps/convergence_study.cpp)
 target_link_libraries(convergence_study PRIVATE twin_core)
 target_compile_options(convergence_study PRIVATE -Wall -Wextra)

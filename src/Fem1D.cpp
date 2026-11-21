@@ -49,7 +49,7 @@ void apply_dirichlet(DMatrix &K, DVector &F, size_t node, double g){
         throw std::invalid_argument("the matrix and the vector have different sizes");}
 
     if (size <= node){
-        throw std::invalid_argument("The node is bigger than the size");}
+        throw std::invalid_argument("The node index is out of range");}
     
     for(size_t i {0}; i < size; ++i){
         if (i != node){
@@ -101,13 +101,13 @@ DMatrix assemble_mass(const std::vector<double>& x, double rho_c){
 DVector solve_transient(const std::vector<double>& x, double rho_c, double k, double q, double T_left, double T_right, const DVector& T0,
                         double dt, std::size_t n_steps, double theta){
     if(T0.size() != x.size()){
-        throw std::invalid_argument("The two vectors dont match the size");}
+        throw std::invalid_argument("T0 must have one value per node");}
 
     if( dt <= 0){
-        throw std::invalid_argument("the delta t is lower orequal to 0");}
+        throw std::invalid_argument("dt must be positive");}
 
     if(theta < 0 || theta > 1){
-        throw std::invalid_argument("theta has an invalid value");}
+        throw std::invalid_argument("theta must be between 0 and 1");}
 
     DMatrix K = assemble_stiffness(x, k);
     DVector F = assemble_load(x, q);
@@ -147,7 +147,7 @@ DVector solve_transient(const std::vector<double>& x, double rho_c, double k, do
 
 double l2_error(const std::vector<double>& x, const DVector& T_num, const DVector& T_ref){
     if(T_num.size() != x.size() || T_ref.size() != x.size()){
-        throw std::invalid_argument("One of the Tvectors does not match the vector size");}
+        throw std::invalid_argument("T_num and T_ref must have one value per node");}
     
     DVector e = T_num - T_ref;
     DMatrix M = assemble_mass(x, 1.0);
@@ -159,7 +159,7 @@ double l2_error(const std::vector<double>& x, const DVector& T_num, const DVecto
 
 double observed_order(double e_coarse, double e_fine, double ratio){
     if(!(ratio > 1) || !(e_coarse > 0) || !(e_fine > 0)){
-        throw std::invalid_argument("Data are not valid");}
+        throw std::invalid_argument("ratio must be greater than 1 and both errors must be positive");}
     
     double o = std::log(e_coarse / e_fine) / std::log(ratio);
     return o;

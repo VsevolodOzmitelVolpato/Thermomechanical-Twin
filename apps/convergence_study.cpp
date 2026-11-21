@@ -14,8 +14,8 @@ using std::cout;
 using std::endl;
 
 struct ChainErrors {
-    double tip = 0.0;      // errore sullo spostamento della punta (barra con l'estremo destro libero)
-    double stress = 0.0;   // errore massimo sulla tensione (barra con l'estremo destro bloccato)
+    double tip = 0.0;      // error of the tip displacement (bar with the right end free)
+    double stress = 0.0;   // maximum error of the stress (bar with the right end fixed)
 };
 
 ThermoMechanicalProblem sine_problem(std::size_t N, double dt, std::size_t steps, double theta,
@@ -59,12 +59,13 @@ void print_chain_header(const char* level_name, const char* step_name) {
     std::cout << "|------:|---------:|----------:|------:|-------------:|\n";
 }
 
-// Le tabelle nel tempo della lastra 2D hanno una colonna in piu', la differenza. L'ordine non si ricava dal rapporto
-// fra due errori vicini (come sopra): la mesh ha un errore suo, E_h, che non cambia al cambiare di dt (a n = 32 vale
-// circa 4.5e-4) e sporcherebbe quel rapporto. Si sottraggono invece gli errori di due righe vicine (E_h si cancella) e
-// l'ordine e' il rapporto fra due differenze vicine: e' la stessa idea degli ESEMPI 113 e 114 dei test.
-// Una riga: passi, dt, errore, differenza dall'errore della riga prima, ordine. Quello che manca e' un trattino: la
-// differenza vuole la riga prima (previous_error > 0), l'ordine vuole anche la differenza della riga prima
+// The time tables of the 2D slab have one more column, the difference. The order cannot be obtained from the ratio
+// of two neighbouring errors (as above): the mesh has an error of its own, E_h, that does not change when dt changes
+// (at n = 32 it is about 4.5e-4) and would spoil that ratio. Instead, the errors of two neighbouring rows are subtracted
+// (E_h cancels out) and the order is the ratio of two neighbouring differences: it is the same idea as EXAMPLES 113
+// and 114 of the tests.
+// One row: steps, dt, error, difference from the error of the previous row, order. What is missing is a dash: the
+// difference needs the previous row (previous_error > 0), the order needs the difference of the previous row too
 // (previous_difference > 0).
 void print_difference_row(std::size_t steps, double dt, double error, double previous_error,
                           double previous_difference) {
@@ -115,8 +116,8 @@ ChainErrors chain_errors(std::size_t N, double dt, std::size_t steps, double the
     return errors;
 }
 
-// La trave d'acciaio dei test: 4 m per 1 m, E = 210 GPa, nu = 0.3, alpha = 12e-6 per kelvin, gradiente di 100 K per
-// metro, temperatura di riferimento 293.15 K.
+// The steel beam of the tests: 4 m by 1 m, E = 210 GPa, nu = 0.3, alpha = 12e-6 per kelvin, gradient of 100 K per
+// metre, reference temperature 293.15 K.
 BendingBeam steel_beam() {
     BendingBeam beam;
     beam.length = 4.0;
@@ -129,8 +130,8 @@ BendingBeam steel_beam() {
     return beam;
 }
 
-// L'ordine osservato fra l'errore della riga prima (previous) e quello di questa riga (current), con 2 decimali.
-// Nella prima riga non c'e' la riga prima (previous = 0) e si stampa un trattino.
+// The observed order between the error of the previous row (previous) and that of this row (current), with 2 decimals.
+// In the first row there is no previous row (previous = 0) and a dash is printed.
 void print_order(double previous, double current) {
     if (previous > 0.0) {
         std::cout << std::fixed << std::setprecision(2) << std::setw(5) << observed_order(previous, current, 2.0);
@@ -139,7 +140,7 @@ void print_order(double previous, double current) {
     }
 }
 
-// Una riga della tabella della trave: k celle in altezza (la mesh e' 4 k x k), i due errori e i due ordini.
+// One row of the beam table: k cells in height (the mesh is 4 k x k), the two errors and the two orders.
 void print_beam_row(std::size_t k, const BendingBeamErrors& errors, const BendingBeamErrors& previous) {
     const std::string cells = std::to_string(4 * k) + " x " + std::to_string(k);
     std::cout << "| " << std::setw(5) << k << " | " << std::setw(8) << cells << " | " << std::scientific
@@ -150,23 +151,23 @@ void print_beam_row(std::size_t k, const BendingBeamErrors& errors, const Bendin
     std::cout << " |\n";
 }
 
-// ---- La lastra d'acciaio che si raffredda: la von Mises a meta' spessore -------------------------------------------
+// ---- The steel slab that cools: the von Mises stress at mid-thickness ----------------------------------------------
 
-// Il valore della mesh e quello del libro, in Pa, nello stesso punto della lastra.
+// The value of the mesh and the textbook one, in Pa, at the same point of the slab.
 struct SlabVonMises {
-    double fe = 0.0;      // la von Mises della mesh: media dei due triangoli della cella
-    double exact = 0.0;   // la formula del libro al centro di quella cella
+    double fe = 0.0;      // the von Mises stress of the mesh: mean of the two triangles of the cell
+    double exact = 0.0;   // the textbook formula at the centre of that cell
 };
 
-// La lastra dei test (ESEMPIO 237): acciaio (E = 210 GPa, nu = 0.3, alpha = 12e-6 per kelvin, rho c = 7850 * 470,
-// k = 45), spessore 0.1 m, lunga 4 volte lo spessore, le due facce a 293.15 K, rulli (u = 0) ai due estremi.
-// Temperatura iniziale 293.15 + 100 sin(pi y / H) K: il calore e' un seno che decade, e al tempo t vale
+// The slab of the tests (EXAMPLE 237): steel (E = 210 GPa, nu = 0.3, alpha = 12e-6 per kelvin, rho c = 7850 * 470,
+// k = 45), thickness 0.1 m, 4 times as long as it is thick, both faces at 293.15 K, rollers (u = 0) at the two ends.
+// Initial temperature 293.15 + 100 sin(pi y / H) K: the heat is a decaying sine, and at time t it is
 //     T - T_ref = 100 sin(pi y / H) exp(-t / tau),     tau = H^2 rho c / (pi^2 k) = 83.07 s.
-// Lontano dagli estremi la lastra non si deforma ne' in x ne' in z, e la von Mises e' la formula del libro
+// Far from the ends the slab deforms neither in x nor in z, and the von Mises stress is the textbook formula
 //     E alpha (T - T_ref) / (1 - nu).
-// Qui si guarda a t = tau (100 passi di Crank-Nicolson, dt = tau / 100), a meta' lunghezza, nella cella appena sopra la
-// meta' dello spessore. k e' il numero di celle nello spessore: la mesh e' 4 k x k (k pari, cosi' c'e' una riga di
-// nodi proprio a meta' spessore).
+// Here we look at t = tau (100 Crank-Nicolson steps, dt = tau / 100), at mid-length, in the cell just above
+// mid-thickness. k is the number of cells across the thickness: the mesh is 4 k x k (k even, so that there is a row
+// of nodes exactly at mid-thickness).
 SlabVonMises slab_von_mises(std::size_t k) {
     const double pi = std::acos(-1.0);
     const double height = 0.1;
@@ -192,19 +193,19 @@ SlabVonMises slab_von_mises(std::size_t k) {
             problem.T0[j * (nx + 1) + i] = T_ref + amplitude * std::sin(pi * y_over_height);
         }
     }
-    for (std::size_t i = 0; i <= nx; ++i) {   // le due facce restano a T_ref
+    for (std::size_t i = 0; i <= nx; ++i) {   // both faces stay at T_ref
         problem.fixed_nodes.push_back(i);
         problem.fixed_temperatures.push_back(T_ref);
         problem.fixed_nodes.push_back(ny * (nx + 1) + i);
         problem.fixed_temperatures.push_back(T_ref);
     }
-    for (std::size_t j = 0; j <= ny; ++j) {   // rulli: u = 0 sui due lati x = 0 e x = L
+    for (std::size_t j = 0; j <= ny; ++j) {   // rollers: u = 0 on the two sides x = 0 and x = L
         problem.fixed_dofs.push_back(2 * (j * (nx + 1)));
         problem.fixed_displacements.push_back(0.0);
         problem.fixed_dofs.push_back(2 * (j * (nx + 1) + nx));
         problem.fixed_displacements.push_back(0.0);
     }
-    problem.fixed_dofs.push_back(1);          // v = 0 nel nodo 0, contro il moto rigido in y
+    problem.fixed_dofs.push_back(1);          // v = 0 at node 0, against the rigid motion in y
     problem.fixed_displacements.push_back(0.0);
     problem.rho_c = rho_c;
     problem.k = conductivity;
@@ -218,11 +219,11 @@ SlabVonMises slab_von_mises(std::size_t k) {
     problem.T_ref = T_ref;
 
     const std::vector<ThermoMechanicalState2D> states = solve_thermomechanical_2d(mesh, problem);
-    const ThermoMechanicalState2D& state = states.back();   // il passo 100, cioe' t = tau
+    const ThermoMechanicalState2D& state = states.back();   // step 100, i.e. t = tau
     const std::vector<double> vm = von_mises_field_2d(mesh, state.sigma, E, nu, alpha, state.T, T_ref);
 
-    // La cella in riga k / 2 (da y = H / 2 a y = H / 2 + H / k), in colonna 2 k (a meta' lunghezza). Il triangolo
-    // in basso a destra e' il numero 2 * cella, quello in alto a sinistra il numero 2 * cella + 1.
+    // The cell in row k / 2 (from y = H / 2 to y = H / 2 + H / k), in column 2 k (at mid-length). The triangle
+    // at the bottom right is number 2 * cell, the one at the top left number 2 * cell + 1.
     const std::size_t cell = (k / 2) * nx + nx / 2;
     const double y_center = (static_cast<double>(k / 2) + 0.5) * height / static_cast<double>(k);
 
@@ -232,8 +233,8 @@ SlabVonMises slab_von_mises(std::size_t k) {
     return result;
 }
 
-// La tabella: per ogni k la von Mises della mesh e quella del libro in megapascal, l'errore relativo e l'ordine
-// (nella prima riga non c'e' la riga prima: un trattino).
+// The table: for every k the von Mises stress of the mesh and the textbook one in megapascal, the relative error and
+// the order (in the first row there is no previous row: a dash).
 void print_slab_table() {
     std::cout << "\n### 2D slab: von Mises of a cooling steel slab at mid-height (4 k x k cells, Crank-Nicolson, "
                  "dt = tau / 100, t = tau = 83.07 s)\n\n";

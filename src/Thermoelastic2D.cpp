@@ -23,9 +23,9 @@ namespace{
 std::vector<ThermoMechanicalState2D> solve_thermomechanical_2d(const Mesh2D &M,
                                                                const ThermoMechanicalProblem2D &problem){
     if(problem.save_every == 0){
-        throw std::invalid_argument("the save every argument is equal to 0");}
+        throw std::invalid_argument("save_every must be positive");}
     if(problem.n_steps % problem.save_every != 0){
-        throw std::invalid_argument("the steps and the save every are not proportional");}
+        throw std::invalid_argument("n_steps must be a multiple of save_every");}
 
     Matrix3 D = plane_strain_matrix(problem.E, problem.nu);
     DVector T = problem.T0;

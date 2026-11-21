@@ -8,18 +8,18 @@
 Mesh2D::Mesh2D(const std::vector<double> &x, const std::vector<double> &y, const std::vector<Triangle> &t) :
                x_(x), y_(y), triangles_(t){
                 if(x.size() != y.size()){
-                    throw std::invalid_argument("the two vectors have different sizes");}
+                    throw std::invalid_argument("x and y must have the same size");}
                 if(t.empty()){
-                    throw std::invalid_argument("there is no triangle");}
+                    throw std::invalid_argument("The mesh must have at least one triangle");}
 
                 for(const auto &i:t){
                     for(const auto &j:i){
                         if(j >= x.size()){
-                            throw std::invalid_argument("invalid number in the triangle");}}
+                            throw std::invalid_argument("A triangle refers to a node that does not exist");}}
 
                     double area = 0.5 * ((x[i[1]] - x[i[0]]) *(y[i[2]] - y[i[0]]) - (x[i[2]] - x[i[0]])*(y[i[1]] - y[i[0]]));
                     if(!(area > 0.0)){
-                        throw std::invalid_argument("one or more triangles are not counterclockwise or degenerate");}
+                        throw std::invalid_argument("Every triangle must be counter-clockwise and have a positive area");}
                     areas_.push_back(area);
                 }
             }
@@ -39,10 +39,10 @@ double Mesh2D::area(std::size_t node) const { return areas_.at(node); }
 
 Mesh2D rectangle_mesh(double lx, double ly, size_t nx, size_t ny){
     if(!(lx > 0.0) or !(ly > 0.0)){
-        throw std::invalid_argument("the lenght of one or both vectors is null or negative");
+        throw std::invalid_argument("lx and ly must be positive");
     }
     if( !(nx > 0 ) or !( ny > 0)){
-        throw std::invalid_argument("the numbers of cells are invalid");
+        throw std::invalid_argument("nx and ny must be at least 1");
     }
 
     double dx = lx/nx;

@@ -41,4 +41,4 @@ class CGSolver
 };
 
 
-#endif // CGSOLVER_HPP
+#endif // CGSOLVER_H

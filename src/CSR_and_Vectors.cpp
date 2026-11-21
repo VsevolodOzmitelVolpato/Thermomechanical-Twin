@@ -27,11 +27,11 @@ std::vector<double> CSR::operator*(const std::vector<double> &v) const{
     std::vector<double> y (n,0.0);
     
     if(n != v.size()){
-        throw std::invalid_argument("the dimension of the vector and matrix are different!!");
+        throw std::invalid_argument("The dimensions of the matrix and the vector do not match");
         return y;
     }
     for(size_t i {0}; i < v.size(); ++i){
-        for(size_t j  = row_ptr[i]; j < row_ptr[i+1]; ++j){
+        for(int j  = row_ptr[i]; j < row_ptr[i+1]; ++j){
             y[i] += values[j]*v[col_indx[j]];
         }}
 
@@ -40,8 +40,8 @@ std::vector<double> CSR::operator*(const std::vector<double> &v) const{
 
 
 double CSR::get(size_t i, size_t j) const {
-    for(size_t k = row_ptr[i]; k < row_ptr[i+1]; ++k){
-        if(j == col_indx[k]){
+    for(int k = row_ptr[i]; k < row_ptr[i+1]; ++k){
+        if(j == static_cast<size_t>(col_indx[k])){
             return values[k];}
     }
 
@@ -61,11 +61,11 @@ size_t CSR::size() const{ return n;};
 CSR::CSR( const std::vector<double> &a, const std::vector<int> &b, const std::vector<int> &c) : values(a), col_indx(b), row_ptr(c),
           n(c.empty() ? 0 : c.size() - 1) {
     if (c.empty()    ||    (c[0] != 0)   ||  (a.size() != b.size())   || (static_cast<size_t>(c.back()) != a.size())) {
-        throw std::invalid_argument("Invalid CSR matrix, try again!");}
+        throw std::invalid_argument("Invalid CSR arrays: row_ptr must be non-empty, start at 0 and end at the number of values, and values and col_indx must have the same size");}
 
     for (size_t i = 1; i < c.size(); ++i) {
         if (c[i] < c[i-1]) {
-            throw std::invalid_argument("The row vector is wrong");}}
+            throw std::invalid_argument("row_ptr must be non-decreasing");}}
 }
     
 
@@ -86,7 +86,7 @@ DVector operator+(const DVector &v1, const DVector &v2){
     DVector z( v1.size() );
     if( v1.size() != v2.size() )
     {
-        throw std::invalid_argument("Error: vectors must have the same dimension!");
+        throw std::invalid_argument("The vectors must have the same size");
         return z;
     }
     for( std::size_t i = 0; i < v1.size(); i++ )
@@ -99,7 +99,7 @@ DVector operator-(const DVector &v1, const DVector &v2){
     DVector z( v1.size() );
     if( v1.size() != v2.size() )
     {
-        throw std::invalid_argument("Error: vectors must have the same dimension!");
+        throw std::invalid_argument("The vectors must have the same size");
         return z;
     }
     for( std::size_t i = 0; i < v1.size(); i++ )
@@ -120,7 +120,7 @@ double  dot(const DVector &v6, const DVector &v7){
     double z = 0.0;
     if( v6.size() != v7.size() )
     {
-        throw std::invalid_argument("Error: vectors must have the same dimension!");
+        throw std::invalid_argument("The vectors must have the same size");
         return z;
     }
 

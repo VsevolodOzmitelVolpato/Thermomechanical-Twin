@@ -13,7 +13,7 @@ const double pi = std::acos(-1.0);
 
 double l2_error_2d(const Mesh2D &M, const DVector &T_num, const DVector &T_ref){
     if((T_num.size() != M.num_nodes()) or (T_ref.size() != M.num_nodes())){
-        throw std::invalid_argument("either one of the two vector has not the same size of the mesh");}
+        throw std::invalid_argument("T_num and T_ref must have one value per node of the mesh");}
 
     DVector e = T_num - T_ref;
 

@@ -13,11 +13,11 @@ DVector solve_steady_2d(const Mesh2D &M, double k,const DVector &f, const std::v
     std::size_t n = M.num_nodes();
 
     if(!(k > 0.0)){
-        throw std::invalid_argument("K must be positive");}
+        throw std::invalid_argument("k must be positive");}
     if(f.size() != n){
-        throw std::invalid_argument("the size of the vector doesnt match the size of the mesh");}
+        throw std::invalid_argument("f must have one value per node of the mesh");}
     if(fixed_nodes.empty()){
-        throw std::invalid_argument("the fixed nodes are empty");}
+        throw std::invalid_argument("At least one node must be fixed");}
 
     std::vector<Triplet> triplets = stiffness_triplets_2d(M, k);
 
@@ -34,7 +34,7 @@ DVector solve_steady_2d(const Mesh2D &M, double k,const DVector &f, const std::v
     CGS.solve(true);
 
     if(!CGS.has_converged()){
-        throw std::runtime_error("The matrix has not converged");}
+        throw std::runtime_error("CG has not converged");}
 
     return CGS.get_solution();
 }
@@ -55,13 +55,13 @@ DVector solve_transient_2d(const Mesh2D &M, double rho_c, double k, const DVecto
     std::size_t n = M.num_nodes();
 
     if(!(rho_c > 0.0) or !(k > 0.0) or !(dt > 0.0)){
-        throw std::invalid_argument("one of the doubles (not theta) is less than 0");}
+        throw std::invalid_argument("rho_c, k and dt must be positive");}
     if(!(theta >= 0.0 && theta <= 1.0)){
-        throw std::invalid_argument("the value of theta is invalid");}
+        throw std::invalid_argument("theta must be between 0 and 1");}
     if((f.size() != n) or (T0.size() != n)){
-        throw std::invalid_argument("either one of the two vector doesnt match in size with the mesh");}
+        throw std::invalid_argument("f and T0 must have one value per node of the mesh");}
     if(fixed_values.size() != fixed_nodes.size()){
-        throw std::invalid_argument("the fixed values and nodes are not of the same size");}
+        throw std::invalid_argument("The fixed values and the fixed nodes must have the same size");}
     
     std::vector<Triplet> mass_tr = mass_triplets_2d(M, rho_c);
     std::vector<Triplet> stiff_tr = stiffness_triplets_2d(M, k);
@@ -87,7 +87,7 @@ DVector solve_transient_2d(const Mesh2D &M, double rho_c, double k, const DVecto
         cg.solve(true);
 
         if (!cg.has_converged()){
-            throw std::runtime_error("the CG has not converged");}
+            throw std::runtime_error("CG has not converged");}
 
         T = cg.get_solution();
     }

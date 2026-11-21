@@ -13,11 +13,11 @@ namespace {
 
 CSR csr_from_triplets(size_t n, const std::vector<Triplet> &v){
     if( n == 0){
-        throw std::invalid_argument("the n parameter cannot be equal to 0 ");}
+        throw std::invalid_argument("n must be positive");}
 
     for(auto &t : v){
         if( (t.col >= n) or (t.row >= n)){
-            throw std::invalid_argument("either the row or the column have an invalid size");}}
+            throw std::invalid_argument("A triplet has a row or column index >= n");}}
     
     std::vector<Triplet> trips = v;
     std::stable_sort(trips.begin(), trips.end(), triplets_comparison);

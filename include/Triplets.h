@@ -10,7 +10,7 @@ struct Triplet{
     double val;
 };
 
-//Sums duplicates, retains zeros, and throws `std::invalid_argument` if `n == 0` or if any triplet has a row or column index ≥ `n`
+// Sums duplicates, retains zeros, and throws `std::invalid_argument` if `n == 0` or if any triplet has a row or column index >= `n`
 CSR csr_from_triplets(size_t n, const std::vector<Triplet> &v);
 
 #endif
