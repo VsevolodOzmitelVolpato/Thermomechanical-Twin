@@ -72,7 +72,7 @@ CSR::CSR( const std::vector<double> &a, const std::vector<int> &b, const std::ve
 bool CSR::is_symmetric(const double &toll) const{
     
     for( std::size_t i = 0; i < n; i++ ){
-        for( std::size_t k = row_ptr[i]; k < row_ptr[i + 1]; k++ ){
+        for(int k = row_ptr[i]; k < row_ptr[i + 1]; k++ ){
             if( std::fabs(values[k] - get(col_indx[k], i)) > toll){
                 return false;}}}
     return true;
