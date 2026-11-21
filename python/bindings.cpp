@@ -84,7 +84,7 @@ PYBIND11_MODULE(thermomech, m) {
         .def_property_readonly("triangles", [](const Mesh2D& mesh) {
             const std::size_t nt = mesh.num_triangles();
             py::array_t<std::int64_t> arr({nt, std::size_t{3}});
-            auto ptr = arr.mutable_unchecked<2>(); // Accesso veloce 2D senza controlli di bordo ridondanti
+            auto ptr = arr.mutable_unchecked<2>(); // Fast 2D access without redundant bounds checks
             
             for (std::size_t e = 0; e < nt; ++e) {
                 const Triangle& t = mesh.triangle(e);

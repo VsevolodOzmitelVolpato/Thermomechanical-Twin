@@ -20,7 +20,7 @@ static CSR poisson1d(size_t n) {
 
 // -u'' = 1 on (0,1), u(0) = u(1) = 0 has the exact solution u = x(1-x)/2,
 // a quadratic: the 3-point scheme is exact on quadratics, so the discrete
-// solution equals u at the nodes. Any gap is a bug in your code, not in the
+// solution equals u at the nodes. Any gap is a bug in the solver, not in the
 // discretisation.
 TEST(Cg, Poisson1dIsExactAtTheNodes) {
     const size_t n = 100;
@@ -46,27 +46,27 @@ TEST(Cg, Poisson1dIsExactAtTheNodes) {
 }
 
 TEST(Cg, JacobiPcgGivesTheSameAsCgOnPoisson1d) {
-    // [1] il problema
+    // [1] the problem
     const size_t n = 100;
     const double h = 1.0 / (n + 1);
     CSR A = poisson1d(n);
     DVector b(n, h * h), x0(n, 0.0);
     const unsigned max_it = static_cast<unsigned>(10 * n);
 
-    // [2] due solver con gli STESSI dati
+    // [2] two solvers with the SAME data
     CGSolver cg(A, b, x0, 1e-12, max_it);
     CGSolver pcg(A, b, x0, 1e-12, max_it);
-    cg.solve(false);   // CG semplice
-    pcg.solve(true);   // CG con Jacobi
+    cg.solve(false);   // plain CG
+    pcg.solve(true);   // CG with Jacobi
 
-    // [3] stesso numero di iterazioni
+    // [3] same number of iterations
     EXPECT_EQ(cg.get_iterations(), pcg.get_iterations());
 
-    // [4] stessa soluzione, nodo per nodo
+    // [4] same solution, node by node
     DVector x_cg = cg.get_solution();
     DVector x_pcg = pcg.get_solution();
     for (size_t i = 0; i < n; ++i) {
-        EXPECT_NEAR(x_cg[i], x_pcg[i], 1e-12) << "nodo " << i;
+        EXPECT_NEAR(x_cg[i], x_pcg[i], 1e-12) << "node " << i;
     }
 }
 
@@ -80,14 +80,14 @@ static double max_distance_from_ones(const DVector& x) {
 }
 
 TEST(Cg, JacobiPcgNeedsFarFewerIterationsOnBadlyScaledMatrix) {
-    // [1] la scala: un numero s[i] per ogni punto, da 1 a circa 31.6
+    // [1] the scaling: one number s[i] per point, from 1 to about 31.6
     const size_t n = 400;
     std::vector<double> s(n);
     for (size_t i = 0; i < n; ++i) {
         s[i] = std::pow(10.0, 1.5 * static_cast<double>(i) / static_cast<double>(n - 1));
     }
 
-    // [2] la matrice B = S * A * S  (A = Poisson), riempita a mano
+    // [2] the matrix B = S * A * S  (A = Poisson), filled in by hand
     std::vector<std::vector<double>> M(n, std::vector<double>(n, 0.0));
     for (size_t i = 0; i < n; ++i) {
         M[i][i] = s[i] * 2.0 * s[i];
@@ -96,44 +96,44 @@ TEST(Cg, JacobiPcgNeedsFarFewerIterationsOnBadlyScaledMatrix) {
     }
     CSR B(M);
 
-    // [3] parto dalla RISPOSTA (tutti 1) e calcolo il termine noto b = B * 1
+    // [3] start from the ANSWER (all ones) and compute the right-hand side b = B * 1
     DVector ones(n, 1.0), x0(n, 0.0);
     DVector b = B * ones;
     const unsigned max_it = static_cast<unsigned>(10 * n);
 
-    // [4] due solver, uno senza e uno con Jacobi
+    // [4] two solvers, one without and one with Jacobi
     CGSolver cg(B, b, x0, 1e-12, max_it);
     CGSolver pcg(B, b, x0, 1e-12, max_it);
     cg.solve(false);
     pcg.solve(true);
-    std::cout << "CG: " << cg.get_iterations() << " iterazioni, PCG: "
-              << pcg.get_iterations() << " iterazioni" << std::endl;
+    std::cout << "CG: " << cg.get_iterations() << " iterations, PCG: "
+              << pcg.get_iterations() << " iterations" << std::endl;
 
-    // [5] controlli
+    // [5] checks
     EXPECT_LT(4 * pcg.get_iterations(), cg.get_iterations());
     EXPECT_LT(max_distance_from_ones(cg.get_solution()), 1e-8);
     EXPECT_LT(max_distance_from_ones(pcg.get_solution()), 1e-8);
 }
 
 TEST(Cg, WrongInputsThrow) {
-    CSR A = poisson1d(10);   // matrice 10x10, simmetrica: va bene
+    CSR A = poisson1d(10);   // 10x10 matrix, symmetric: fine
 
-    // [1] b troppo corto: 9 numeri invece di 10
+    // [1] b too short: 9 numbers instead of 10
     EXPECT_THROW(CGSolver(A, DVector(9, 1.0), DVector(10, 0.0), 1e-10, 100), std::invalid_argument);
 
-    // [2] x0 troppo corto: 9 numeri invece di 10
+    // [2] x0 too short: 9 numbers instead of 10
     EXPECT_THROW(CGSolver(A, DVector(10, 1.0), DVector(9, 0.0), 1e-10, 100), std::invalid_argument);
 
-    // [3] matrice NON simmetrica: il CG non puo funzionare
+    // [3] NON-symmetric matrix: CG cannot work
     std::vector<std::vector<double>> N = {{2, -1, 0}, {-3, 2, 0}, {0, 0, 1}};
     CSR not_symmetric(N);
     EXPECT_THROW(CGSolver(not_symmetric, DVector(3, 1.0), DVector(3, 0.0), 1e-10, 100), std::invalid_argument);
 }
 
-// ---- Il solver dice se e' arrivato a convergenza -------------------------------------
+// ---- The solver reports whether it has converged -------------------------------------
 
-// Problema che CG risolve senza storie: Poisson 1D con 100 incognite e 10 n iterazioni a disposizione
-// (la stessa del primo test). Sia CG semplice sia con Jacobi devono dire "convergenza".
+// A problem CG solves without any trouble: 1D Poisson with 100 unknowns and 10*n iterations available
+// (the same as in the first test). Both plain CG and CG with Jacobi must report "convergence".
 TEST(Cg, ReportsConvergence) {
     const size_t n = 100;
     const double h = 1.0 / (n + 1);
@@ -150,8 +150,8 @@ TEST(Cg, ReportsConvergence) {
     EXPECT_TRUE(pcg.has_converged());
 }
 
-// Lo stesso problema con sole 5 iterazioni: con 100 incognite CG non puo' arrivare a 1e-12.
-// Il solver si ferma perche' le iterazioni sono finite (ne fa esattamente 5) e deve dirlo.
+// The same problem with only 5 iterations: with 100 unknowns CG cannot get to 1e-12.
+// The solver stops because the iterations run out (it does exactly 5) and it must say so.
 TEST(Cg, ReportsFailureWhenTheIterationsRunOut) {
     const size_t n = 100;
     const double h = 1.0 / (n + 1);
@@ -169,10 +169,10 @@ TEST(Cg, ReportsFailureWhenTheIterationsRunOut) {
     EXPECT_FALSE(pcg.has_converged());
 }
 
-// La risposta dipende dal RESIDUO alla fine, non dal numero di iterazioni usate.
-// Prima si scopre quante iterazioni K servono davvero (calcolo di riferimento). Poi si rifa' lo
-// stesso problema con max_it = K: le iterazioni finiscono proprio quando il residuo scende sotto
-// soglia, quindi e' convergenza. Con max_it = K - 1 gli manca l'ultima iterazione: non lo e'.
+// The answer depends on the RESIDUAL at the end, not on the number of iterations used.
+// First find out how many iterations K are really needed (reference computation). Then solve the
+// same problem with max_it = K: the iterations run out exactly when the residual drops below the
+// threshold, so this is convergence. With max_it = K - 1 the last iteration is missing: it is not.
 TEST(Cg, ConvergenceDependsOnTheResidualNotOnTheIterationCount) {
     const size_t n = 100;
     const double h = 1.0 / (n + 1);
@@ -196,9 +196,9 @@ TEST(Cg, ConvergenceDependsOnTheResidualNotOnTheIterationCount) {
     EXPECT_FALSE(one_short.has_converged());
 }
 
-// Un NaN nel termine noto: il residuo e' NaN, e un NaN non e' ne' > ne' <= di nessun numero.
-// Il ciclo di CG non parte nemmeno (0 iterazioni) e la soluzione e' ancora la stima iniziale.
-// Il solver NON deve dire "convergenza": un risultato senza senso non e' un risultato.
+// A NaN in the right-hand side: the residual is NaN, and a NaN is neither > nor <= any number.
+// The CG loop does not even start (0 iterations) and the solution is still the initial guess.
+// The solver must NOT report "convergence": a meaningless result is not a result.
 TEST(Cg, NaNInTheRightHandSideIsNotConvergence) {
     CSR A = poisson1d(10);
     DVector b(10, 1.0), x0(10, 0.0);
@@ -213,9 +213,9 @@ TEST(Cg, NaNInTheRightHandSideIsNotConvergence) {
     EXPECT_FALSE(pcg.has_converged());
 }
 
-// b = 0 e partenza x0 = 0: la soluzione e' esattamente x = 0 e il residuo e' 0 fin dall'inizio.
-// Il criterio |r| <= tol |b| diventa 0 <= 0, che e' vero: convergenza a 0 iterazioni.
-// (Con "<" al posto di "<=" il solver direbbe di non essere arrivato, su un problema gia' risolto.)
+// b = 0 and starting point x0 = 0: the solution is exactly x = 0 and the residual is 0 from the start.
+// The criterion |r| <= tol |b| becomes 0 <= 0, which is true: convergence at 0 iterations.
+// (With "<" instead of "<=" the solver would say it has not converged, on an already solved problem.)
 TEST(Cg, ZeroRightHandSideWithZeroGuessConvergesAtOnce) {
     CSR A = poisson1d(10);
     DVector b(10, 0.0), x0(10, 0.0);
@@ -230,10 +230,10 @@ TEST(Cg, ZeroRightHandSideWithZeroGuessConvergesAtOnce) {
     }
 }
 
-// La tolleranza e' RELATIVA a |b|. Qui b e' 1e-14 volte quello del primo test, quindi |b| e' circa
-// 1e-17: il residuo iniziale e' gia' piu' piccolo di 1e-12 in valore assoluto, ma rispetto a |b|
-// vale 1, cioe' non e' sceso per niente. Con 5 iterazioni il solver non puo' dire "convergenza";
-// con 10 n iterazioni invece ci arriva (CG ragiona in modo identico a qualunque scala).
+// The tolerance is RELATIVE to |b|. Here b is 1e-14 times that of the first test, so |b| is about
+// 1e-17: the initial residual is already smaller than 1e-12 in absolute value, but relative to |b|
+// it equals 1, i.e. it has not decreased at all. With 5 iterations the solver cannot say "convergence";
+// with 10*n iterations it does get there (CG behaves the same way at any scale).
 TEST(Cg, ConvergenceIsRelativeToTheSizeOfB) {
     const size_t n = 100;
     const double h = 1.0 / (n + 1);
@@ -250,12 +250,12 @@ TEST(Cg, ConvergenceIsRelativeToTheSizeOfB) {
 }
 
 TEST(Jacobi, ZeroDiagonalAndWrongSizeThrow) {
-    // [1] uno 0 sulla diagonale: Jacobi dovrebbe dividere per 0
+    // [1] a 0 on the diagonal: Jacobi would have to divide by 0
     std::vector<std::vector<double>> Z = {{0, 1}, {1, 2}};
     CSR zero_diag(Z);
     EXPECT_THROW(JacobiPreconditioner jac(zero_diag), std::invalid_argument);
 
-    // [2] apply() con un vettore di lunghezza sbagliata (3 invece di 4)
+    // [2] apply() with a vector of the wrong length (3 instead of 4)
     JacobiPreconditioner J(poisson1d(4));
     EXPECT_THROW(J.apply(DVector(3, 1.0)), std::invalid_argument);
 }

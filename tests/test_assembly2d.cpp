@@ -11,76 +11,76 @@
 #include "Fem2D.h"
 #include "Mesh2D.h"
 
-// ---- Dalle matrici dei triangoli alla matrice di tutta la mesh: l'assemblaggio -------------------
+// ---- From the triangle matrices to the matrix of the whole mesh: the assembly --------------------
 //
-// element_stiffness(mesh, e, k) da' la matrice 3 x 3 di UN triangolo, con gli indici LOCALI 0, 1, 2.
-// La matrice di tutta la mesh, K, e' n x n, con n = numero dei nodi, e i suoi indici sono i NODI della
-// mesh: K[I][J] e' il legame fra il nodo I e il nodo J. Si ottiene sommando i contributi di tutti i
-// triangoli che hanno sia I sia J fra i loro nodi:
+// element_stiffness(mesh, e, k) gives the 3 x 3 matrix of ONE triangle, with the LOCAL indices 0, 1, 2.
+// The matrix of the whole mesh, K, is n x n, with n = number of nodes, and its indices are the NODES of the
+// mesh: K[I][J] is the coupling between node I and node J. It is obtained by adding up the contributions of all the
+// triangles that have both I and J among their nodes:
 //
-//     K[I][J] = somma, sui triangoli e con I e J fra i loro nodi, di Ke[i][j]
-//               dove i e j sono le posizioni di I e J nella terna t = mesh.triangle(e)   (t[i] = I, t[j] = J)
+//     K[I][J] = sum, over the triangles e with I and J among their nodes, of Ke[i][j]
+//               where i and j are the positions of I and J in the three nodes t = mesh.triangle(e)   (t[i] = I, t[j] = J)
 //
-// Quindi ogni triangolo produce 9 terne (riga, colonna, valore) = (t[i], t[j], Ke[i][j]): riga e colonna
-// sono i nodi della mesh, non gli indici locali. Le terne di tutti i triangoli vanno a csr_from_triplets,
-// che somma quelle con la stessa posizione. Due nodi che non stanno mai nello stesso triangolo non si
-// influenzano: K[I][J] = 0 e non occupa memoria.
+// So each triangle produces 9 triplets (row, column, value) = (t[i], t[j], Ke[i][j]): row and column
+// are the nodes of the mesh, not the local indices. The triplets of all the triangles go to csr_from_triplets,
+// which adds up those with the same position. Two nodes that are never in the same triangle do not
+// influence each other: K[I][J] = 0 and it takes no memory.
 //
-// assemble_stiffness_2d(mesh, k) restituisce K in formato CSR (n x n, n = mesh.num_nodes()). Non ci sono
-// errori da segnalare: la mesh e' gia' stata controllata dal costruttore di Mesh2D.
+// assemble_stiffness_2d(mesh, k) returns K in CSR format (n x n, n = mesh.num_nodes()). There are no
+// errors to report: the mesh has already been checked by the constructor of Mesh2D.
 
 namespace {
 
 using Dense = std::vector<std::vector<double>>;
 
-// Un rettangolo lx x ly diviso in nx x ny celle, come in rectangle_mesh.
+// A rectangle lx x ly divided into nx x ny cells, as in rectangle_mesh.
 struct Grid {
     double lx, ly;
     std::size_t nx, ny;
 };
 
-// Sei rettangoli di forme molto diverse.
+// Six rectangles of very different shapes.
 std::vector<Grid> sample_grids() {
-    return {{1.0, 1.0, 1, 1},     // il quadrato unitario: due triangoli
-            {2.0, 1.0, 2, 1},     // le due celle dell'ESEMPIO 37
-            {3.0, 1.5, 4, 3},     // celle 0.75 x 0.5
-            {1.0, 1.0, 6, 6},     // 72 triangoli
-            {0.2, 0.05, 5, 2},    // piccolo (20 cm per 5 cm, in metri)
-            {10.0, 0.1, 1, 7}};   // molto schiacciato: celle 10 x 0.0143
+    return {{1.0, 1.0, 1, 1},     // the unit square: two triangles
+            {2.0, 1.0, 2, 1},     // the two cells of EXAMPLE 37
+            {3.0, 1.5, 4, 3},     // 0.75 x 0.5 cells
+            {1.0, 1.0, 6, 6},     // 72 triangles
+            {0.2, 0.05, 5, 2},    // small (20 cm by 5 cm, in meters)
+            {10.0, 0.1, 1, 7}};   // very flat: 10 x 0.0143 cells
 }
 
 std::size_t nodes_of(const Grid& g) { return (g.nx + 1) * (g.ny + 1); }
 
 std::string describe(const Grid& g) {
-    return "rettangolo " + std::to_string(g.lx) + " x " + std::to_string(g.ly) + " con " + std::to_string(g.nx) +
-           " x " + std::to_string(g.ny) + " celle";
+    return "rectangle " + std::to_string(g.lx) + " x " + std::to_string(g.ly) + " with " + std::to_string(g.nx) +
+           " x " + std::to_string(g.ny) + " cells";
 }
 
-// Il triangolo grande dell'ESEMPIO 8 delle mesh, con il nodo 3 dentro (area 9/2). Non e' un rettangolo.
+// The large triangle of EXAMPLE 8 of the meshes, with node 3 inside (area 9/2). It is not a rectangle.
 Mesh2D triangle_with_interior_node() {
     return Mesh2D({0.0, 3.0, 0.0, 1.0}, {0.0, 0.0, 3.0, 1.0}, {{0, 1, 3}, {1, 2, 3}, {2, 0, 3}});
 }
 
-// Un quadrilatero irregolare con un nodo dentro: 0 = (0, 0), 1 = (4, 0), 2 = (3, 3), 3 = (-1, 2) e, dentro,
-// 4 = (1, 0.7). Quattro triangoli attorno al nodo 4, tutti di forma e area diverse: 1.4, 4.15, 3.6 e 1.35 (in
-// tutto 10.5).
+// An irregular quadrilateral with a node inside: 0 = (0, 0), 1 = (4, 0), 2 = (3, 3), 3 = (-1, 2) and, inside,
+// 4 = (1, 0.7). Four triangles around node 4, all of different shape and area: 1.4, 4.15, 3.6 and 1.35 (10.5
+// in total).
 Mesh2D irregular_quadrilateral() {
     return Mesh2D({0.0, 4.0, 3.0, -1.0, 1.0}, {0.0, 0.0, 3.0, 2.0, 0.7},
                   {{0, 1, 4}, {1, 2, 4}, {2, 3, 4}, {3, 0, 4}});
 }
 
-// Controlla che A sia la matrice `want`, elemento per elemento, e che occupi esattamente nnz posti.
+// Checks that A is the matrix `want`, element by element, and that it occupies exactly nnz slots.
 void expect_matrix(const CSR& A, const Dense& want, std::size_t nnz, const std::string& what = "") {
-    ASSERT_EQ(A.size(), want.size()) << what << " dimensione";
-    EXPECT_EQ(A.get_val_size(), nnz) << what << " posti occupati";
+    ASSERT_EQ(A.size(), want.size()) << what << " size";
+    EXPECT_EQ(A.get_val_size(), nnz) << what << " occupied slots";
     for (std::size_t i = 0; i < want.size(); ++i) {
         for (std::size_t j = 0; j < want.size(); ++j) {
-            EXPECT_DOUBLE_EQ(A.get(i, j), want[i][j]) << what << " elemento (" << i << ", " << j << ")";
+            EXPECT_DOUBLE_EQ(A.get(i, j), want[i][j]) << what << " element (" << i << ", " << j << ")";
         }
     }
 }
 
-// Il piu' grande valore assoluto sulla diagonale di A: la "scala" della matrice, per fissare le tolleranze.
+// The largest absolute value on the diagonal of A: the "scale" of the matrix, used to set the tolerances.
 double largest_diagonal(const CSR& A) {
     double m = 0.0;
     for (double d : A.diag()) {
@@ -89,7 +89,7 @@ double largest_diagonal(const CSR& A) {
     return m;
 }
 
-// Il campo di temperatura lineare T(x, y) = t0 + gx x + gy y, valutato nei nodi della mesh.
+// The linear temperature field T(x, y) = t0 + gx x + gy y, evaluated at the nodes of the mesh.
 std::vector<double> linear_field(const Mesh2D& mesh, double t0, double gx, double gy) {
     std::vector<double> T;
     for (std::size_t i = 0; i < mesh.num_nodes(); ++i) {
@@ -98,7 +98,7 @@ std::vector<double> linear_field(const Mesh2D& mesh, double t0, double gx, doubl
     return T;
 }
 
-// La somma delle aree di tutti i triangoli.
+// The sum of the areas of all the triangles.
 double total_area(const Mesh2D& mesh) {
     double a = 0.0;
     for (std::size_t e = 0; e < mesh.num_triangles(); ++e) {
@@ -107,8 +107,8 @@ double total_area(const Mesh2D& mesh) {
     return a;
 }
 
-// Il "conto lento": K in una tabella piena n x n, in cui ogni triangolo somma a mano i suoi 9 numeri nelle
-// caselle (t[i], t[j]). Serve solo come confronto, e solo per mesh piccole.
+// The "slow computation": K in a full n x n table, in which each triangle adds by hand its 9 numbers into the
+// cells (t[i], t[j]). It is only used for comparison, and only for small meshes.
 Dense slow_stiffness(const Mesh2D& mesh, double k) {
     Dense D(mesh.num_nodes(), std::vector<double>(mesh.num_nodes(), 0.0));
     for (std::size_t e = 0; e < mesh.num_triangles(); ++e) {
@@ -123,7 +123,7 @@ Dense slow_stiffness(const Mesh2D& mesh, double k) {
     return D;
 }
 
-// Confronta A con una tabella piena, casella per casella.
+// Compares A with a full table, cell by cell.
 void expect_same_as_dense(const CSR& A, const Dense& D) {
     ASSERT_EQ(A.size(), D.size());
     double scale = 0.0;
@@ -134,13 +134,13 @@ void expect_same_as_dense(const CSR& A, const Dense& D) {
     }
     for (std::size_t i = 0; i < D.size(); ++i) {
         for (std::size_t j = 0; j < D.size(); ++j) {
-            EXPECT_NEAR(A.get(i, j), D[i][j], 1e-13 * scale) << "elemento (" << i << ", " << j << ")";
+            EXPECT_NEAR(A.get(i, j), D[i][j], 1e-13 * scale) << "element (" << i << ", " << j << ")";
         }
     }
 }
 
-// L'energia di un campo lineare e l'equilibrio nei nodi interni (ESEMPIO 39). Aggiunge a `interior` il
-// numero di nodi interni controllati.
+// The energy of a linear field and the equilibrium at the interior nodes (EXAMPLE 39). Adds to `interior` the
+// number of interior nodes checked.
 void check_linear_field(const Mesh2D& m, double k, std::size_t& interior) {
     const double t0 = 1.5;
     const double gx = 2.0;
@@ -162,7 +162,7 @@ void check_linear_field(const Mesh2D& m, double k, std::size_t& interior) {
     const double expected = k * (gx * gx + gy * gy) * total_area(m);
     EXPECT_NEAR(energy, expected, 1e-9 * expected);
 
-    // (K T)[I] = 0 nei nodi interni
+    // (K T)[I] = 0 at the interior nodes
     std::vector<bool> on_boundary(m.num_nodes(), false);
     for (std::size_t node : boundary_nodes(m)) {
         on_boundary[node] = true;
@@ -170,7 +170,7 @@ void check_linear_field(const Mesh2D& m, double k, std::size_t& interior) {
     const double tol = 1e-11 * largest_diagonal(K) * tmax;
     for (std::size_t i = 0; i < KT.size(); ++i) {
         if (!on_boundary[i]) {
-            EXPECT_NEAR(KT[i], 0.0, tol) << "nodo interno " << i;
+            EXPECT_NEAR(KT[i], 0.0, tol) << "interior node " << i;
             ++interior;
         }
     }
@@ -178,19 +178,19 @@ void check_linear_field(const Mesh2D& m, double k, std::size_t& interior) {
 
 }  // namespace
 
-// ESEMPIO 37. Due celle quadrate 1 x 1 affiancate, rectangle_mesh(2, 1, 2, 1), con k = 2. I nodi, riga per
-// riga, e i quattro triangoli (la diagonale di ogni cella va dal nodo in basso a sinistra a quello in alto a
-// destra):
+// EXAMPLE 37. Two 1 x 1 square cells side by side, rectangle_mesh(2, 1, 2, 1), with k = 2. The nodes, row by
+// row, and the four triangles (the diagonal of each cell goes from the bottom-left node to the top-right
+// one):
 //
-//         3 ----- 4 ----- 5            T0 = (0, 1, 4)   T1 = (0, 4, 3)      <- cella di sinistra
-//         |     / |     / |            T2 = (1, 2, 5)   T3 = (1, 5, 4)      <- cella di destra
+//         3 ----- 4 ----- 5            T0 = (0, 1, 4)   T1 = (0, 4, 3)      <- left cell
+//         |     / |     / |            T2 = (1, 2, 5)   T3 = (1, 5, 4)      <- right cell
 //         |   /   |   /   |
 //         | /     | /     |
 //         0 ----- 1 ----- 2
 //
-// Ogni triangolo ha area 1/2, quindi k / (4 A) = 1 e K[i][j] = b_i b_j + c_i c_j (la formula dell'ESEMPIO 11).
-// I triangoli sono di due tipi: (a, b, c) = (basso-sinistra, basso-destra, alto-destra), per T0 e T2, e
-// (a, c, d) = (basso-sinistra, alto-destra, alto-sinistra), per T1 e T3. Con i vertici (0,0), (1,0), (1,1) e
+// Every triangle has area 1/2, so k / (4 A) = 1 and K[i][j] = b_i b_j + c_i c_j (the formula of EXAMPLE 11).
+// The triangles are of two kinds: (a, b, c) = (bottom-left, bottom-right, top-right), for T0 and T2, and
+// (a, c, d) = (bottom-left, top-right, top-left), for T1 and T3. With the vertices (0,0), (1,0), (1,1) and
 // (0,0), (1,1), (0,1):
 //
 //     (a, b, c):  b = (-1, 1, 0)  c = (0, -1, 1)          (a, c, d):  b = (0, 1, -1)  c = (-1, 0, 1)
@@ -199,9 +199,9 @@ void check_linear_field(const Mesh2D& m, double k, std::size_t& interior) {
 //                 [-1  2 -1 ]                                         [ 0  1 -1 ]
 //                 [ 0 -1  1 ]                                         [-1 -1  2 ]
 //
-// Ora si somma, nodo per nodo. Il nodo 1 sta in T0 (come b: diagonale 2), in T2 (come a: 1) e in T3
-// (come a: 1), quindi K[1][1] = 2 + 1 + 1 = 4. La coppia (1, 4) sta in T0 (come b-c: -1) e in T3 (come a-d: -1),
-// quindi K[1][4] = -2. Con tutti i nodi:
+// Now we add up, node by node. Node 1 is in T0 (as b: diagonal 2), in T2 (as a: 1) and in T3
+// (as a: 1), so K[1][1] = 2 + 1 + 1 = 4. The pair (1, 4) is in T0 (as b-c: -1) and in T3 (as a-d: -1),
+// so K[1][4] = -2. With all the nodes:
 //
 //         [ 2 -1  0 -1  0  0 ]
 //         [-1  4 -1  0 -2  0 ]
@@ -210,12 +210,12 @@ void check_linear_field(const Mesh2D& m, double k, std::size_t& interior) {
 //         [ 0 -2  0 -1  4 -1 ]
 //         [ 0  0 -1  0 -1  2 ]
 //
-// Ogni riga somma a 0. Occupa un posto ogni coppia di nodi che stanno in uno stesso triangolo (compresa la
-// coppia di un nodo con se stesso), anche se la somma fa 0: le diagonali delle celle, 0-4 e 1-5, stanno in due
-// triangoli ciascuna, con legame 0 in tutti e due (angolo retto), e occupano comunque un posto (come
-// nell'ESEMPIO 30). Le coppie che non stanno in nessun triangolo (1-3, 2-4, 0-5...) valgono 0 e non occupano
-// niente. In tutto 6 + 2 * 9 = 24 posti: 6 sulla diagonale e 9 coppie fuori diagonale
-// (0-1, 0-3, 0-4, 1-2, 1-4, 1-5, 2-5, 3-4, 4-5), ciascuna in due posti.
+// Every row adds up to 0. Each pair of nodes that are in the same triangle takes one slot (including the
+// pair of a node with itself), even if the sum is 0: the diagonals of the cells, 0-4 and 1-5, are each in two
+// triangles, with coupling 0 in both (right angle), and they take a slot all the same (as in
+// EXAMPLE 30). The pairs that are in no triangle (1-3, 2-4, 0-5...) are 0 and take up
+// nothing. In total 6 + 2 * 9 = 24 slots: 6 on the diagonal and 9 off-diagonal pairs
+// (0-1, 0-3, 0-4, 1-2, 1-4, 1-5, 2-5, 3-4, 4-5), each in two slots.
 TEST(Assembly2d, StiffnessOfTwoSquareCellsMatchesHandComputation) {
     const Mesh2D m = rectangle_mesh(2.0, 1.0, 2, 1);
 
@@ -228,12 +228,12 @@ TEST(Assembly2d, StiffnessOfTwoSquareCellsMatchesHandComputation) {
     expect_matrix(assemble_stiffness_2d(m, 2.0), want, 24);
 }
 
-// ESEMPIO 38. Due cose che valgono per QUALUNQUE mesh, come per il singolo triangolo (ESEMPIO 15):
-//   - K e' simmetrica;
-//   - ogni riga somma a zero: se la temperatura e' la stessa in tutti i nodi non passa calore. In formule:
-//     la riga I di K per il vettore (1, ..., 1) e' la somma dei contributi dei triangoli attorno a I, e ogni
-//     riga di ogni Ke somma a zero.
-// Qui sui sei rettangoli di sample_grids: celle quadrate, larghe, strette, piccole, molto schiacciate.
+// EXAMPLE 38. Two things that hold for ANY mesh, as for the single triangle (EXAMPLE 15):
+//   - K is symmetric;
+//   - every row adds up to zero: if the temperature is the same at all the nodes no heat flows. In formulas:
+//     the row I of K times the vector (1, ..., 1) is the sum of the contributions of the triangles around I, and every
+//     row of every Ke adds up to zero.
+// Here on the six rectangles of sample_grids: square, wide, narrow, small and very flat cells.
 TEST(Assembly2d, StiffnessIsSymmetricAndAConstantTemperatureHasNoFlux) {
     for (const Grid& g : sample_grids()) {
         SCOPED_TRACE(describe(g));
@@ -246,30 +246,30 @@ TEST(Assembly2d, StiffnessIsSymmetricAndAConstantTemperatureHasNoFlux) {
         const std::vector<double> flux = K * std::vector<double>(K.size(), 1.0);
         ASSERT_EQ(flux.size(), K.size());
         for (std::size_t i = 0; i < flux.size(); ++i) {
-            EXPECT_NEAR(flux[i], 0.0, tol) << "riga " << i;
+            EXPECT_NEAR(flux[i], 0.0, tol) << "row " << i;
         }
     }
 }
 
-// ESEMPIO 39. L'energia di un campo di temperatura LINEARE T(x, y) = t0 + gx x + gy y su tutta la mesh: il
-// gradiente e' costante (gx, gy) dappertutto, quindi
-//     T^T K T = integrale di k |grad T|^2 = k (gx^2 + gy^2) * (area della mesh),
-// la somma delle aree dei triangoli. E' lo stesso controllo dell'ESEMPIO 16, ora sulla matrice assemblata
-// (T_I e' la temperatura del nodo I).
+// EXAMPLE 39. The energy of a LINEAR temperature field T(x, y) = t0 + gx x + gy y over the whole mesh: the
+// gradient is constant (gx, gy) everywhere, so
+//     T^T K T = integral of k |grad T|^2 = k (gx^2 + gy^2) * (area of the mesh),
+// the sum of the areas of the triangles. It is the same check as EXAMPLE 16, now on the assembled matrix
+// (T_I is the temperature of node I).
 //
-// C'e' di piu'. La riga I di K per T e'
-//     (K T)[I] = integrale di k grad T . grad N_I,    sui triangoli che contengono I,
-// dove N_I e' la funzione cappello del nodo I: vale 1 in I e scende a 0 sul bordo del pezzo di mesh attorno a I.
-// Con T lineare, grad T = (gx, gy) e' costante e si porta fuori dall'integrale:
-//     (K T)[I] = k (gx, gy) . integrale di grad N_I.
-// Se I e' INTERNO (non di bordo, secondo boundary_nodes) quell'integrale e' 0: N_I vale 0 su tutto il bordo del
-// pezzo di mesh, e per il teorema della divergenza l'integrale del gradiente e' l'integrale sul bordo di N_I per
-// la normale, cioe' 0. Quindi in ogni nodo interno il bilancio del calore torna a 0, per ogni campo lineare e
-// su QUALUNQUE mesh, anche irregolare. Nei nodi di bordo no: li' passa il calore che entra ed esce.
-// Questo e' il "patch test", il controllo classico degli elementi finiti, e non usa nessun valore di K
-// calcolato a mano. Qui sui sei rettangoli, sul triangolo con un nodo dentro (ESEMPIO 8 delle mesh, area 9/2,
-// quindi l'energia e' 2.5 * 13 * 9/2 = 146.25) e su un quadrilatero irregolare con un nodo dentro, fatto di
-// quattro triangoli tutti diversi (area 10.5).
+// There is more. The row I of K times T is
+//     (K T)[I] = integral of k grad T . grad N_I,    over the triangles that contain I,
+// where N_I is the hat function of node I: it is 1 at I and drops to 0 on the boundary of the piece of mesh around I.
+// With T linear, grad T = (gx, gy) is constant and comes out of the integral:
+//     (K T)[I] = k (gx, gy) . integral of grad N_I.
+// If I is INTERIOR (not on the boundary, according to boundary_nodes) that integral is 0: N_I is 0 on the whole
+// boundary of the piece of mesh, and by the divergence theorem the integral of the gradient is the integral over
+// the boundary of N_I times the normal, i.e. 0. So at every interior node the heat balance comes back to 0, for
+// every linear field and on ANY mesh, even an irregular one. Not at the boundary nodes: there heat flows in and out.
+// This is the "patch test", the classic check of finite elements, and it uses no value of K
+// computed by hand. Here on the six rectangles, on the triangle with a node inside (EXAMPLE 8 of the meshes, area 9/2,
+// so the energy is 2.5 * 13 * 9/2 = 146.25) and on an irregular quadrilateral with a node inside, made of
+// four triangles that are all different (area 10.5).
 TEST(Assembly2d, StiffnessGivesTheEnergyOfALinearFieldAndBalancesTheInteriorNodes) {
     const double k = 2.5;
     std::size_t interior = 0;
@@ -279,47 +279,47 @@ TEST(Assembly2d, StiffnessGivesTheEnergyOfALinearFieldAndBalancesTheInteriorNode
         check_linear_field(rectangle_mesh(g.lx, g.ly, g.nx, g.ny), k, interior);
     }
     {
-        SCOPED_TRACE("triangolo con un nodo dentro");
+        SCOPED_TRACE("triangle with a node inside");
         check_linear_field(triangle_with_interior_node(), k, interior);
     }
     {
-        SCOPED_TRACE("quadrilatero irregolare con un nodo dentro");
+        SCOPED_TRACE("irregular quadrilateral with a node inside");
         check_linear_field(irregular_quadrilateral(), k, interior);
     }
-    EXPECT_GT(interior, 30u) << "il controllo dei nodi interni non deve essere vuoto";
+    EXPECT_GT(interior, 30u) << "the check on the interior nodes must not be empty";
 }
 
-// ESEMPIO 40. Lo stesso K calcolato per un'altra strada, lenta e semplice: una tabella piena n x n, in cui
-// ogni triangolo somma a mano i suoi 9 numeri nelle caselle (t[i], t[j]). Per mesh piccole si puo' fare;
-// per quelle grandi la tabella piena non entra in memoria (ESEMPIO 43), ed e' il motivo del formato CSR. I
-// due metodi devono dare la stessa matrice in ogni casella, con coefficienti non banali (k = 3.5, 0.7 e 1.3)
-// e su tre mesh diverse, l'ultima fatta di triangoli tutti diversi.
+// EXAMPLE 40. The same K computed another way, slow and simple: a full n x n table, in which
+// each triangle adds by hand its 9 numbers into the cells (t[i], t[j]). For small meshes this can be done;
+// for large ones the full table does not fit in memory (EXAMPLE 43), and that is the reason for the CSR format. The
+// two methods must give the same matrix in every cell, with non-trivial coefficients (k = 3.5, 0.7 and 1.3)
+// and on three different meshes, the last one made of triangles that are all different.
 TEST(Assembly2d, StiffnessMatchesTheSlowDenseAssembly) {
     {
-        SCOPED_TRACE("rettangolo 3 x 1.5 con 4 x 3 celle, k = 3.5");
+        SCOPED_TRACE("rectangle 3 x 1.5 with 4 x 3 cells, k = 3.5");
         const Mesh2D m = rectangle_mesh(3.0, 1.5, 4, 3);
         expect_same_as_dense(assemble_stiffness_2d(m, 3.5), slow_stiffness(m, 3.5));
     }
     {
-        SCOPED_TRACE("triangolo con un nodo dentro, k = 0.7");
+        SCOPED_TRACE("triangle with a node inside, k = 0.7");
         const Mesh2D m = triangle_with_interior_node();
         expect_same_as_dense(assemble_stiffness_2d(m, 0.7), slow_stiffness(m, 0.7));
     }
     {
-        SCOPED_TRACE("quadrilatero irregolare con un nodo dentro, k = 1.3");
+        SCOPED_TRACE("irregular quadrilateral with a node inside, k = 1.3");
         const Mesh2D m = irregular_quadrilateral();
         expect_same_as_dense(assemble_stiffness_2d(m, 1.3), slow_stiffness(m, 1.3));
     }
 }
 
-// ESEMPIO 41. Quanti posti occupa K. Il conto e' sulla mesh, non sui numeri: un posto per ogni coppia di nodi
-// che stanno in uno stesso triangolo, e due nodi stanno in uno stesso triangolo se e solo se li unisce un
-// LATO della mesh. Quindi
-//     posti = (un posto per nodo, sulla diagonale) + 2 * (lati)       perche' ogni lato occupa (I, J) e (J, I).
-// In un rettangolo di nx x ny celle i nodi sono (nx + 1)(ny + 1) e i lati sono
-//     orizzontali nx (ny + 1)  +  verticali (nx + 1) ny  +  diagonali nx ny.
-// Per nx = 2, ny = 1: 6 nodi, 4 + 3 + 2 = 9 lati, 6 + 18 = 24 posti, come nell'ESEMPIO 37. Non dipende da k,
-// ne' da quanti elementi risultano 0.
+// EXAMPLE 41. How many slots K occupies. The count is on the mesh, not on the numbers: one slot for each pair of
+// nodes that are in the same triangle, and two nodes are in the same triangle if and only if a mesh
+// EDGE joins them. So
+//     slots = (one slot per node, on the diagonal) + 2 * (edges)       because every edge occupies (I, J) and (J, I).
+// In a rectangle of nx x ny cells the nodes are (nx + 1)(ny + 1) and the edges are
+//     horizontal nx (ny + 1)  +  vertical (nx + 1) ny  +  diagonal nx ny.
+// For nx = 2, ny = 1: 6 nodes, 4 + 3 + 2 = 9 edges, 6 + 18 = 24 slots, as in EXAMPLE 37. It does not depend on k,
+// nor on how many elements turn out to be 0.
 TEST(Assembly2d, StiffnessOccupiesOnePlacePerNodeAndTwoPerEdge) {
     const std::size_t sizes[][2] = {{1, 1}, {2, 1}, {1, 2}, {3, 2}, {5, 4}, {1, 9}, {7, 1}};
 
@@ -331,16 +331,16 @@ TEST(Assembly2d, StiffnessOccupiesOnePlacePerNodeAndTwoPerEdge) {
 
         for (double k : {1.0, 7.5}) {
             const CSR K = assemble_stiffness_2d(rectangle_mesh(1.0, 1.0, nx, ny), k);
-            EXPECT_EQ(K.get_val_size(), nodes + 2 * edges) << nx << " x " << ny << " celle, k = " << k;
+            EXPECT_EQ(K.get_val_size(), nodes + 2 * edges) << nx << " x " << ny << " cells, k = " << k;
         }
     }
 }
 
-// ESEMPIO 42. Una mesh in cui due nodi non appartengono a nessun triangolo: 0 = (5, 5) e 5 = (7, 7). I nodi
-// 1..4 sono il quadrato unitario con i due triangoli (1, 2, 3) e (1, 3, 4). La matrice ha comunque una riga e
-// una colonna per OGNI nodo della mesh (6 x 6), non solo per quelli usati dai triangoli: le righe 0 e 5 sono
-// vuote. La dimensione e' mesh.num_nodes(), non si ricava dai triangoli (il nodo piu' grande che usano e' il
-// 4, e 4 + 1 farebbe 5). Con k = 2 il blocco dei nodi 1..4 e' il quadrato unitario, 14 posti in tutto:
+// EXAMPLE 42. A mesh in which two nodes belong to no triangle: 0 = (5, 5) and 5 = (7, 7). Nodes
+// 1..4 are the unit square with the two triangles (1, 2, 3) and (1, 3, 4). The matrix still has a row and
+// a column for EVERY node of the mesh (6 x 6), not only for those used by the triangles: rows 0 and 5 are
+// empty. The size is mesh.num_nodes(), it cannot be derived from the triangles (the largest node they use is
+// 4, and 4 + 1 would make 5). With k = 2 the block of nodes 1..4 is the unit square, 14 slots in total:
 //
 //         [ 0  0  0  0  0  0 ]
 //         [ 0  2 -1  0 -1  0 ]
@@ -349,7 +349,7 @@ TEST(Assembly2d, StiffnessOccupiesOnePlacePerNodeAndTwoPerEdge) {
 //         [ 0 -1  0 -1  2  0 ]
 //         [ 0  0  0  0  0  0 ]
 //
-// (i posti 1-3 e 3-1 sono la diagonale della cella: occupati, con valore 0).
+// (the slots 1-3 and 3-1 are the diagonal of the cell: occupied, with value 0).
 TEST(Assembly2d, NodesOutsideEveryTriangleGetEmptyRowsAndColumns) {
     const Mesh2D m({5.0, 0.0, 1.0, 1.0, 0.0, 7.0}, {5.0, 0.0, 0.0, 1.0, 1.0, 7.0}, {{1, 2, 3}, {1, 3, 4}});
     ASSERT_EQ(m.num_nodes(), 6u);
@@ -363,11 +363,11 @@ TEST(Assembly2d, NodesOutsideEveryTriangleGetEmptyRowsAndColumns) {
     expect_matrix(assemble_stiffness_2d(m, 2.0), want, 14);
 }
 
-// ESEMPIO 43. Una mesh di 150 x 150 celle sul quadrato unitario: 22801 nodi e 45000 triangoli. Una tabella
-// piena avrebbe 22801^2 = 520 milioni di numeri (circa 4 GB); in formato CSR ne bastano 158401 (22801 sulla
-// diagonale e 2 * 67800 lati). Se l'assemblaggio costruisse una tabella piena, o fosse quadratico nel numero
-// di nodi, questo test non finirebbe. Controlli: i posti (la formula dell'ESEMPIO 41), un campo costante (ogni
-// riga somma a 0) e il campo T = x, la cui energia vale k * 1 * 1 = 1 qualunque sia la finezza della mesh.
+// EXAMPLE 43. A mesh of 150 x 150 cells on the unit square: 22801 nodes and 45000 triangles. A full
+// table would have 22801^2 = 520 million numbers (about 4 GB); in CSR format 158401 are enough (22801 on the
+// diagonal and 2 * 67800 edges). If the assembly built a full table, or were quadratic in the number
+// of nodes, this test would never finish. Checks: the slots (the formula of EXAMPLE 41), a constant field (every
+// row adds up to 0) and the field T = x, whose energy is k * 1 * 1 = 1 whatever the fineness of the mesh.
 TEST(Assembly2d, AssemblyOfALargeMeshStaysSparse) {
     const std::size_t n = 150;
     const Mesh2D m = rectangle_mesh(1.0, 1.0, n, n);
@@ -380,7 +380,7 @@ TEST(Assembly2d, AssemblyOfALargeMeshStaysSparse) {
 
     const std::vector<double> flux = K * std::vector<double>(nodes, 1.0);
     for (std::size_t i = 0; i < nodes; ++i) {
-        ASSERT_NEAR(flux[i], 0.0, 1e-12) << "riga " << i;
+        ASSERT_NEAR(flux[i], 0.0, 1e-12) << "row " << i;
     }
 
     std::vector<double> T;
@@ -395,18 +395,18 @@ TEST(Assembly2d, AssemblyOfALargeMeshStaysSparse) {
     EXPECT_NEAR(energy, 1.0, 1e-9);
 }
 
-// ---- Massa e carico di tutta la mesh ------------------------------------------------------------
+// ---- Mass and load of the whole mesh ------------------------------------------------------------
 //
-// Stessa costruzione di K, con i contributi di altri elementi:
-//   - assemble_mass_2d(mesh, rho_c) e' la matrice di massa M (n x n, CSR), con i contributi di element_mass.
-//     Occupa gli stessi posti di K: dipendono solo dalla mesh.
-//   - assemble_load_2d(mesh, q) e' il vettore dei carichi f (n numeri), con i contributi di element_load.
-//     Qui non servono le terne: f e' un vettore, e il numero fe[i] del triangolo e va semplicemente sommato
-//     alla casella t[i]. Un nodo che non sta in nessun triangolo riceve 0.
+// Same construction as K, with the contributions of other elements:
+//   - assemble_mass_2d(mesh, rho_c) is the mass matrix M (n x n, CSR), with the contributions of element_mass.
+//     It occupies the same slots as K: they only depend on the mesh.
+//   - assemble_load_2d(mesh, q) is the load vector f (n numbers), with the contributions of element_load.
+//     Here the triplets are not needed: f is a vector, and the number fe[i] of the triangle e is simply added
+//     to the cell t[i]. A node that is in no triangle receives 0.
 
 namespace {
 
-// Come slow_stiffness, per la massa.
+// Like slow_stiffness, for the mass.
 Dense slow_mass(const Mesh2D& mesh, double rho_c) {
     Dense D(mesh.num_nodes(), std::vector<double>(mesh.num_nodes(), 0.0));
     for (std::size_t e = 0; e < mesh.num_triangles(); ++e) {
@@ -421,7 +421,7 @@ Dense slow_mass(const Mesh2D& mesh, double rho_c) {
     return D;
 }
 
-// Le coordinate x (o y) dei nodi, come vettore.
+// The x (or y) coordinates of the nodes, as a vector.
 std::vector<double> coordinate(const Mesh2D& mesh, bool x) {
     std::vector<double> c;
     for (std::size_t i = 0; i < mesh.num_nodes(); ++i) {
@@ -440,34 +440,34 @@ double bilinear(const CSR& M, const std::vector<double>& u, const std::vector<do
     return s;
 }
 
-// La mesh dell'ESEMPIO 13: due triangoli di area DIVERSA. 0 = (0, 0), 1 = (4, 0), 2 = (1, 2), 3 = (6, 4);
-// T0 = (0, 1, 2) con A = 4 e T1 = (1, 3, 2) con A = 8.
+// The mesh of EXAMPLE 13: two triangles of DIFFERENT area. 0 = (0, 0), 1 = (4, 0), 2 = (1, 2), 3 = (6, 4);
+// T0 = (0, 1, 2) with A = 4 and T1 = (1, 3, 2) with A = 8.
 Mesh2D two_triangles_of_different_area() {
     return Mesh2D({0.0, 4.0, 1.0, 6.0}, {0.0, 0.0, 2.0, 4.0}, {{0, 1, 2}, {1, 3, 2}});
 }
 
 }  // namespace
 
-// ESEMPIO 44. Le stesse due celle dell'ESEMPIO 37, con rho_c = 12. Ogni triangolo ha area 1/2, quindi
-// rho_c A / 6 = 1 e rho_c A / 12 = 1/2, e la matrice di OGNI triangolo e'
+// EXAMPLE 44. The same two cells as EXAMPLE 37, with rho_c = 12. Every triangle has area 1/2, so
+// rho_c A / 6 = 1 and rho_c A / 12 = 1/2, and the matrix of EVERY triangle is
 //         [  1  1/2 1/2 ]
 //         [ 1/2  1  1/2 ]
 //         [ 1/2 1/2  1  ]
-// La somma e' piu' facile di quella di K, perche' i triangoli sono tutti uguali: M[I][I] vale 1 per ogni triangolo
-// che contiene I, e M[I][J] vale 1/2 per ogni triangolo che contiene sia I sia J.
-//     triangoli di ogni nodo:  0: T0 T1 (2)   1: T0 T2 T3 (3)   2: T2 (1)   3: T1 (1)   4: T0 T1 T3 (3)   5: T2 T3 (2)
-//     coppie in DUE triangoli: 0-4 (T0 T1), 1-4 (T0 T3), 1-5 (T2 T3), quindi 1;
-//     le altre sei coppie (0-1, 0-3, 1-2, 2-5, 3-4, 4-5) sono in un triangolo solo, quindi 1/2.
+// The sum is easier than that of K, because the triangles are all equal: M[I][I] is 1 for every triangle
+// that contains I, and M[I][J] is 1/2 for every triangle that contains both I and J.
+//     triangles of each node:  0: T0 T1 (2)   1: T0 T2 T3 (3)   2: T2 (1)   3: T1 (1)   4: T0 T1 T3 (3)   5: T2 T3 (2)
+//     pairs in TWO triangles: 0-4 (T0 T1), 1-4 (T0 T3), 1-5 (T2 T3), so 1;
+//     the other six pairs (0-1, 0-3, 1-2, 2-5, 3-4, 4-5) are in a single triangle, so 1/2.
 //
 //         [  2  1/2  0  1/2  1   0  ]
 //         [ 1/2  3  1/2  0   1   1  ]
-//     M = [  0  1/2  1   0   0  1/2 ]          24 posti, gli stessi di K
+//     M = [  0  1/2  1   0   0  1/2 ]          24 slots, the same as K
 //         [ 1/2  0   0   1  1/2  0  ]
 //         [  1   1   0  1/2  3  1/2 ]
 //         [  0   1  1/2  0  1/2  2  ]
 //
-// Le righe sommano a 4, 6, 2, 2, 6, 4: per ogni nodo, rho_c * (aree dei suoi triangoli) / 3 = 12 * (n/2) / 3 = 2 n,
-// con n il numero dei suoi triangoli. In tutto fa 24 = rho_c * area della mesh = 12 * 2.
+// The rows add up to 4, 6, 2, 2, 6, 4: for each node, rho_c * (areas of its triangles) / 3 = 12 * (n/2) / 3 = 2 n,
+// with n the number of its triangles. In total it makes 24 = rho_c * area of the mesh = 12 * 2.
 TEST(Assembly2d, MassOfTwoSquareCellsMatchesHandComputation) {
     const Mesh2D m = rectangle_mesh(2.0, 1.0, 2, 1);
 
@@ -480,22 +480,22 @@ TEST(Assembly2d, MassOfTwoSquareCellsMatchesHandComputation) {
     expect_matrix(assemble_mass_2d(m, 12.0), want, 24);
 }
 
-// ESEMPIO 45. Due triangoli di AREA DIVERSA, la mesh dell'ESEMPIO 13: nodi 0 = (0, 0), 1 = (4, 0), 2 = (1, 2),
-// 3 = (6, 4); T0 = (0, 1, 2) con A = 4 e T1 = (1, 3, 2) con A = 8. Nelle mesh dei rettangoli tutti i triangoli
-// sono uguali e una confusione fra un triangolo e l'altro non si vede: qui si' (la massa e il carico di un
-// triangolo dipendono solo dalla sua area).
+// EXAMPLE 45. Two triangles of DIFFERENT AREA, the mesh of EXAMPLE 13: nodes 0 = (0, 0), 1 = (4, 0), 2 = (1, 2),
+// 3 = (6, 4); T0 = (0, 1, 2) with A = 4 and T1 = (1, 3, 2) with A = 8. In the rectangle meshes all the triangles
+// are equal and a mix-up between one triangle and another goes unseen: here it does not (the mass and the load of a
+// triangle only depend on its area).
 //
-// Con rho_c = 6:    T0: rho_c A / 6 = 4 e rho_c A / 12 = 2        T1: rho_c A / 6 = 8 e rho_c A / 12 = 4
-// Il nodo 0 sta solo in T0, il nodo 3 solo in T1, i nodi 1 e 2 in tutti e due (diagonale 4 + 8, fuori diagonale
-// 2 + 4). I nodi 0 e 3 non stanno mai insieme in un triangolo: 0 e nessun posto.
+// With rho_c = 6:    T0: rho_c A / 6 = 4 and rho_c A / 12 = 2        T1: rho_c A / 6 = 8 and rho_c A / 12 = 4
+// Node 0 is only in T0, node 3 only in T1, nodes 1 and 2 in both (diagonal 4 + 8, off-diagonal
+// 2 + 4). Nodes 0 and 3 are never together in a triangle: 0 and no slot.
 //
 //         [ 4   2   2   0 ]
-//     M = [ 2  12   6   4 ]            14 posti
+//     M = [ 2  12   6   4 ]            14 slots
 //         [ 2   6  12   4 ]
 //         [ 0   4   4   8 ]
 //
-// Con q = 3 ogni triangolo da' q A / 3 a ciascuno dei suoi nodi: T0 da' 3 * 4 / 3 = 4, T1 da' 3 * 8 / 3 = 8. Quindi
-//     f = [4, 4 + 8, 4 + 8, 8] = [4, 12, 12, 8]       (in tutto 36 = q * (4 + 8))
+// With q = 3 every triangle gives q A / 3 to each of its nodes: T0 gives 3 * 4 / 3 = 4, T1 gives 3 * 8 / 3 = 8. So
+//     f = [4, 4 + 8, 4 + 8, 8] = [4, 12, 12, 8]       (in total 36 = q * (4 + 8))
 TEST(Assembly2d, MassAndLoadOfTrianglesOfDifferentAreaMatchHandComputation) {
     const Mesh2D m = two_triangles_of_different_area();
 
@@ -506,20 +506,20 @@ TEST(Assembly2d, MassAndLoadOfTrianglesOfDifferentAreaMatchHandComputation) {
     const std::vector<double> want_f = {4.0, 12.0, 12.0, 8.0};
     ASSERT_EQ(f.size(), want_f.size());
     for (std::size_t i = 0; i < want_f.size(); ++i) {
-        EXPECT_DOUBLE_EQ(f[i], want_f[i]) << "nodo " << i;
+        EXPECT_DOUBLE_EQ(f[i], want_f[i]) << "node " << i;
     }
 }
 
-// ESEMPIO 46. Cose che valgono per QUALUNQUE rettangolo (qui rho_c = 2.5, sui sei di sample_grids):
-//   - M e' simmetrica, e ogni riga somma a un numero positivo (la "massa" concentrata nel nodo);
-//   - tutti gli elementi insieme sommano a rho_c * (area della mesh), la capacita termica totale
-//     (1^T M 1 = integrale di rho_c);
-//   - per due campi LINEARI a(x, y) e b(x, y), con i loro valori nei nodi, a^T M b e' l'integrale ESATTO di
-//     rho_c a b: il prodotto ha grado 2, e gli elementi lineari lo integrano esattamente (ESEMPIO 24). Su un
-//     rettangolo [0, Lx] x [0, Ly]:
-//         integrale di x = Lx^2 Ly / 2     integrale di x^2 = Lx^3 Ly / 3     integrale di x y = Lx^2 Ly^2 / 4
-//     Quindi  x^T M 1,  x^T M x  e  x^T M y  devono dare questi numeri, per rho_c, con QUALUNQUE numero di
-//     celle: non sono approssimazioni che migliorano con la mesh, sono esatti.
+// EXAMPLE 46. Things that hold for ANY rectangle (here rho_c = 2.5, on the six of sample_grids):
+//   - M is symmetric, and every row adds up to a positive number (the "mass" concentrated at the node);
+//   - all the elements together add up to rho_c * (area of the mesh), the total heat capacity
+//     (1^T M 1 = integral of rho_c);
+//   - for two LINEAR fields a(x, y) and b(x, y), with their values at the nodes, a^T M b is the EXACT integral of
+//     rho_c a b: the product has degree 2, and linear elements integrate it exactly (EXAMPLE 24). On a
+//     rectangle [0, Lx] x [0, Ly]:
+//         integral of x = Lx^2 Ly / 2     integral of x^2 = Lx^3 Ly / 3     integral of x y = Lx^2 Ly^2 / 4
+//     So  x^T M 1,  x^T M x  and  x^T M y  must give these numbers, times rho_c, with ANY number of
+//     cells: they are not approximations that improve with the mesh, they are exact.
 TEST(Assembly2d, MassIsSymmetricPositiveAndIntegratesLinearFieldsExactly) {
     const double rho_c = 2.5;
 
@@ -538,7 +538,7 @@ TEST(Assembly2d, MassIsSymmetricPositiveAndIntegratesLinearFieldsExactly) {
         EXPECT_TRUE(M.is_symmetric(1e-12 * largest_diagonal(M)));
         const std::vector<double> lumped = M * one;
         for (std::size_t i = 0; i < lumped.size(); ++i) {
-            EXPECT_GT(lumped[i], 0.0) << "riga " << i;
+            EXPECT_GT(lumped[i], 0.0) << "row " << i;
         }
 
         EXPECT_NEAR(bilinear(M, one, one), rho_c * area, tol);
@@ -548,26 +548,26 @@ TEST(Assembly2d, MassIsSymmetricPositiveAndIntegratesLinearFieldsExactly) {
     }
 }
 
-// ESEMPIO 47. Come l'ESEMPIO 40, per la massa: lo stesso M col conto lento (tabella piena), su tre mesh
-// (rho_c = 3.5, 0.7 e 1.3), l'ultima fatta di triangoli tutti di area diversa. Inoltre la massa occupa gli stessi
-// posti della rigidezza: dipendono dalla mesh, non dall'elemento.
+// EXAMPLE 47. Like EXAMPLE 40, for the mass: the same M with the slow computation (full table), on three meshes
+// (rho_c = 3.5, 0.7 and 1.3), the last made of triangles that all have different areas. Also, the mass occupies the same
+// slots as the stiffness: they depend on the mesh, not on the element.
 TEST(Assembly2d, MassMatchesTheSlowDenseAssemblyAndHasTheSamePlacesAsStiffness) {
     {
-        SCOPED_TRACE("rettangolo 3 x 1.5 con 4 x 3 celle, rho_c = 3.5");
+        SCOPED_TRACE("rectangle 3 x 1.5 with 4 x 3 cells, rho_c = 3.5");
         const Mesh2D m = rectangle_mesh(3.0, 1.5, 4, 3);
         const CSR M = assemble_mass_2d(m, 3.5);
         expect_same_as_dense(M, slow_mass(m, 3.5));
         EXPECT_EQ(M.get_val_size(), assemble_stiffness_2d(m, 1.0).get_val_size());
     }
     {
-        SCOPED_TRACE("triangolo con un nodo dentro, rho_c = 0.7");
+        SCOPED_TRACE("triangle with a node inside, rho_c = 0.7");
         const Mesh2D m = triangle_with_interior_node();
         const CSR M = assemble_mass_2d(m, 0.7);
         expect_same_as_dense(M, slow_mass(m, 0.7));
         EXPECT_EQ(M.get_val_size(), assemble_stiffness_2d(m, 1.0).get_val_size());
     }
     {
-        SCOPED_TRACE("quadrilatero irregolare con un nodo dentro, rho_c = 1.3");
+        SCOPED_TRACE("irregular quadrilateral with a node inside, rho_c = 1.3");
         const Mesh2D m = irregular_quadrilateral();
         const CSR M = assemble_mass_2d(m, 1.3);
         expect_same_as_dense(M, slow_mass(m, 1.3));
@@ -575,10 +575,10 @@ TEST(Assembly2d, MassMatchesTheSlowDenseAssemblyAndHasTheSamePlacesAsStiffness) 
     }
 }
 
-// ESEMPIO 48. Il carico delle stesse due celle dell'ESEMPIO 37, con q = 6. Ogni triangolo ha area 1/2 e da'
-// q A / 3 = 1 a ciascuno dei suoi tre nodi. Quindi f[I] e' il numero dei triangoli del nodo I (ESEMPIO 44):
+// EXAMPLE 48. The load of the same two cells as EXAMPLE 37, with q = 6. Every triangle has area 1/2 and gives
+// q A / 3 = 1 to each of its three nodes. So f[I] is the number of triangles of node I (EXAMPLE 44):
 //     f = [2, 3, 1, 1, 3, 2]
-// e in tutto fa 12 = q * area della mesh = 6 * 2: il calore prodotto dalla sorgente in tutta la lastra.
+// and in total it makes 12 = q * area of the mesh = 6 * 2: the heat produced by the source in the whole plate.
 TEST(Assembly2d, LoadOfTwoSquareCellsMatchesHandComputation) {
     const Mesh2D m = rectangle_mesh(2.0, 1.0, 2, 1);
 
@@ -586,16 +586,16 @@ TEST(Assembly2d, LoadOfTwoSquareCellsMatchesHandComputation) {
     const std::vector<double> want = {2.0, 3.0, 1.0, 1.0, 3.0, 2.0};
     ASSERT_EQ(f.size(), want.size());
     for (std::size_t i = 0; i < want.size(); ++i) {
-        EXPECT_DOUBLE_EQ(f[i], want[i]) << "nodo " << i;
+        EXPECT_DOUBLE_EQ(f[i], want[i]) << "node " << i;
     }
 }
 
-// ESEMPIO 49. Due cose che valgono per QUALUNQUE mesh (qui q = 7, rho_c = 2.5):
-//   - il calore totale: la somma di f e' q * (area della mesh);
-//   - il carico e la massa sono legati, come per il triangolo (ESEMPIO 27): f[I] = q / rho_c * (riga I di M)
-//     sommata, cioe' f = (q / rho_c) * (M per il vettore di tutti 1).
-// Con q negativo (un pozzo di calore) tutto cambia segno. Sui sei rettangoli, sul triangolo con un nodo dentro,
-// sul quadrilatero irregolare e sui due triangoli di area diversa.
+// EXAMPLE 49. Two things that hold for ANY mesh (here q = 7, rho_c = 2.5):
+//   - the total heat: the sum of f is q * (area of the mesh);
+//   - the load and the mass are linked, as for the triangle (EXAMPLE 27): f[I] = q / rho_c * (row I of M)
+//     summed, i.e. f = (q / rho_c) * (M times the vector of all 1).
+// With negative q (a heat sink) everything changes sign. On the six rectangles, on the triangle with a node inside,
+// on the irregular quadrilateral and on the two triangles of different area.
 TEST(Assembly2d, LoadAddsUpToTheTotalHeatAndIsTheRowSumOfTheMass) {
     const double rho_c = 2.5;
 
@@ -608,7 +608,7 @@ TEST(Assembly2d, LoadAddsUpToTheTotalHeatAndIsTheRowSumOfTheMass) {
     meshes.push_back(two_triangles_of_different_area());
 
     for (std::size_t index = 0; index < meshes.size(); ++index) {
-        SCOPED_TRACE("mesh numero " + std::to_string(index));
+        SCOPED_TRACE("mesh number " + std::to_string(index));
         const Mesh2D& m = meshes[index];
         const double area = total_area(m);
         const std::vector<double> lumped = assemble_mass_2d(m, rho_c) * std::vector<double>(m.num_nodes(), 1.0);
@@ -622,23 +622,23 @@ TEST(Assembly2d, LoadAddsUpToTheTotalHeatAndIsTheRowSumOfTheMass) {
             double total = 0.0;
             for (std::size_t i = 0; i < f.size(); ++i) {
                 total += f[i];
-                EXPECT_NEAR(f[i], q / rho_c * lumped[i], tol) << "nodo " << i;
+                EXPECT_NEAR(f[i], q / rho_c * lumped[i], tol) << "node " << i;
             }
             EXPECT_NEAR(total, q * area, tol);
         }
     }
 }
 
-// ESEMPIO 50. La mesh dell'ESEMPIO 42, con i nodi 0 e 5 fuori da ogni triangolo. Con rho_c = 12 e q = 6, i
-// due triangoli (1, 2, 3) e (1, 3, 4) hanno area 1/2, quindi la matrice di ogni triangolo e' quella dell'ESEMPIO
-// 44 e il carico per nodo e' 1:
+// EXAMPLE 50. The mesh of EXAMPLE 42, with nodes 0 and 5 outside every triangle. With rho_c = 12 and q = 6, the
+// two triangles (1, 2, 3) and (1, 3, 4) have area 1/2, so the matrix of each triangle is the one of EXAMPLE
+// 44 and the load per node is 1:
 //         [ 0   0   0   0   0  0 ]
 //         [ 0   2  1/2  1  1/2 0 ]
 //         [ 0  1/2  1  1/2  0  0 ]                       f = [0, 2, 1, 2, 1, 0]
-//     M = [ 0   1  1/2  2  1/2 0 ]       14 posti
+//     M = [ 0   1  1/2  2  1/2 0 ]       14 slots
 //         [ 0  1/2  0  1/2  1  0 ]
 //         [ 0   0   0   0   0  0 ]
-// Le dimensioni sono quelle della mesh (6), i nodi isolati hanno riga vuota in M e carico 0.
+// The sizes are those of the mesh (6), the isolated nodes have an empty row in M and load 0.
 TEST(Assembly2d, MassAndLoadKeepOneRowPerNodeEvenForNodesOutsideEveryTriangle) {
     const Mesh2D m({5.0, 0.0, 1.0, 1.0, 0.0, 7.0}, {5.0, 0.0, 0.0, 1.0, 1.0, 7.0}, {{1, 2, 3}, {1, 3, 4}});
     ASSERT_EQ(m.num_nodes(), 6u);
@@ -655,26 +655,26 @@ TEST(Assembly2d, MassAndLoadKeepOneRowPerNodeEvenForNodesOutsideEveryTriangle) {
     const std::vector<double> want_f = {0.0, 2.0, 1.0, 2.0, 1.0, 0.0};
     ASSERT_EQ(f.size(), want_f.size());
     for (std::size_t i = 0; i < want_f.size(); ++i) {
-        EXPECT_DOUBLE_EQ(f[i], want_f[i]) << "nodo " << i;
+        EXPECT_DOUBLE_EQ(f[i], want_f[i]) << "node " << i;
     }
 }
 
-// ---- Le terne prima di sommarle -------------------------------------------------------------------
+// ---- The triplets before adding them up -----------------------------------------------------------
 //
-// assemble_stiffness_2d e assemble_mass_2d restituiscono una CSR, e una CSR non si modifica: non offre nessun
-// modo di cambiare una riga. Le condizioni di Dirichlet (passo successivo) cambiano righe e colonne di K, quindi
-// vanno applicate PRIMA, sulla lista delle terne (riga, colonna, valore) da cui nasce la CSR. Per questo le due
-// liste diventano pubbliche:
-//   - stiffness_triplets_2d(mesh, k): le terne di K;
-//   - mass_triplets_2d(mesh, rho_c): le terne di M.
-// Sono i contributi dei triangoli, ancora da sommare: 9 terne per triangolo, (t[i], t[j], Ke[i][j]) con i e j da
-// 0 a 2, in un ordine qualunque. Le terne con la stessa posizione NON sono sommate (lo fa csr_from_triplets) e
-// quelle con valore 0 NON sono tolte. Per chi le usa, assemble_stiffness_2d e assemble_mass_2d non cambiano: sono
-// la CSR di queste liste.
+// assemble_stiffness_2d and assemble_mass_2d return a CSR, and a CSR cannot be modified: it offers no way
+// to change a row. The Dirichlet conditions (next step) change rows and columns of K, so they have to be
+// applied BEFORE, on the list of triplets (row, column, value) from which the CSR is built. For this reason the
+// two lists become public:
+//   - stiffness_triplets_2d(mesh, k): the triplets of K;
+//   - mass_triplets_2d(mesh, rho_c): the triplets of M.
+// They are the contributions of the triangles, still to be added up: 9 triplets per triangle, (t[i], t[j], Ke[i][j])
+// with i and j from 0 to 2, in any order. Triplets with the same position are NOT added up (csr_from_triplets does
+// that) and those with value 0 are NOT removed. For whoever uses them, assemble_stiffness_2d and assemble_mass_2d do
+// not change: they are the CSR of these lists.
 
 namespace {
 
-// I valori delle terne che stanno in posizione (row, col), in ordine crescente.
+// The values of the triplets at position (row, col), in increasing order.
 std::vector<double> values_at(const std::vector<Triplet>& triplets, std::size_t row, std::size_t col) {
     std::vector<double> out;
     for (const Triplet& t : triplets) {
@@ -687,17 +687,17 @@ std::vector<double> values_at(const std::vector<Triplet>& triplets, std::size_t 
     return out;
 }
 
-// Confronta i valori delle terne in posizione (row, col) con `want` (in ordine crescente).
+// Compares the values of the triplets at position (row, col) with `want` (in increasing order).
 void expect_values_at(const std::vector<Triplet>& triplets, std::size_t row, std::size_t col,
                       const std::vector<double>& want) {
     const std::vector<double> got = values_at(triplets, row, col);
-    ASSERT_EQ(got.size(), want.size()) << "posizione (" << row << ", " << col << ")";
+    ASSERT_EQ(got.size(), want.size()) << "position (" << row << ", " << col << ")";
     for (std::size_t i = 0; i < want.size(); ++i) {
-        EXPECT_DOUBLE_EQ(got[i], want[i]) << "posizione (" << row << ", " << col << "), valore numero " << i;
+        EXPECT_DOUBLE_EQ(got[i], want[i]) << "position (" << row << ", " << col << "), value number " << i;
     }
 }
 
-// Quante posizioni (riga, colonna) DIVERSE compaiono nella lista, in una matrice n x n.
+// How many DIFFERENT positions (row, column) appear in the list, in an n x n matrix.
 std::size_t distinct_places(const std::vector<Triplet>& triplets, std::size_t n) {
     std::vector<std::size_t> places;
     for (const Triplet& t : triplets) {
@@ -709,22 +709,22 @@ std::size_t distinct_places(const std::vector<Triplet>& triplets, std::size_t n)
     return places.size();
 }
 
-// La mesh dell'ESEMPIO 42: i nodi 0 e 5 non stanno in nessun triangolo.
+// The mesh of EXAMPLE 42: nodes 0 and 5 are in no triangle.
 Mesh2D mesh_with_nodes_outside_every_triangle() {
     return Mesh2D({5.0, 0.0, 1.0, 1.0, 0.0, 7.0}, {5.0, 0.0, 0.0, 1.0, 1.0, 7.0}, {{1, 2, 3}, {1, 3, 4}});
 }
 
 }  // namespace
 
-// ESEMPIO 51. Le terne di K per le due celle dell'ESEMPIO 37 (k = 2). Ogni triangolo ne da' 9 e i triangoli sono
-// 4, quindi 36 terne, ma le posizioni diverse sono solo 24 (i 24 posti di K): le altre 12 terne cadono su posti
-// gia' presi da un altro triangolo. Con le matrici dei triangoli dell'ESEMPIO 37:
-//     (1, 1): T0 da' 2, T2 da' 1 e T3 da' 1       2 + 1 + 1 = 4 = K[1][1]
-//     (1, 4): T0 da' -1 e T3 da' -1               -2 = K[1][4], e lo stesso in (4, 1)
-//     (0, 4): T0 e T1 danno 0 tutti e due         il posto c'e' lo stesso e le terne vanno conservate
-//     (2, 2): solo T2, che da' 2
-//     (1, 3): nessuna (1 e 3 non stanno mai nello stesso triangolo)
-// Sommate con csr_from_triplets, le 36 terne danno la K dell'ESEMPIO 37.
+// EXAMPLE 51. The triplets of K for the two cells of EXAMPLE 37 (k = 2). Each triangle gives 9 of them and there are
+// 4 triangles, so 36 triplets, but the different positions are only 24 (the 24 slots of K): the other 12 triplets fall on
+// slots already taken by another triangle. With the triangle matrices of EXAMPLE 37:
+//     (1, 1): T0 gives 2, T2 gives 1 and T3 gives 1       2 + 1 + 1 = 4 = K[1][1]
+//     (1, 4): T0 gives -1 and T3 gives -1                 -2 = K[1][4], and the same in (4, 1)
+//     (0, 4): T0 and T1 both give 0                       the slot exists all the same and the triplets must be kept
+//     (2, 2): only T2, which gives 2
+//     (1, 3): none (1 and 3 are never in the same triangle)
+// Added up with csr_from_triplets, the 36 triplets give the K of EXAMPLE 37.
 TEST(Assembly2d, StiffnessTripletsAreTheContributionsOfEveryTriangle) {
     const Mesh2D m = rectangle_mesh(2.0, 1.0, 2, 1);
     const std::vector<Triplet> trip = stiffness_triplets_2d(m, 2.0);
@@ -747,13 +747,13 @@ TEST(Assembly2d, StiffnessTripletsAreTheContributionsOfEveryTriangle) {
     expect_matrix(csr_from_triplets(m.num_nodes(), trip), want, 24);
 }
 
-// ESEMPIO 52. Lo stesso per la massa, con rho_c = 12 (ESEMPIO 44): 36 terne in 24 posizioni diverse. Ogni
-// triangolo ha la matrice [1 1/2 1/2; 1/2 1 1/2; 1/2 1/2 1], quindi
-//     (1, 1): T0, T2 e T3 danno 1 ciascuno         1 + 1 + 1 = 3 = M[1][1]
-//     (0, 4): T0 e T1 danno 1/2 ciascuno           1 = M[0][4]
-//     (2, 5): solo T2, che da' 1/2
-//     (1, 3): nessuna
-// e sommate danno la M dell'ESEMPIO 44.
+// EXAMPLE 52. The same for the mass, with rho_c = 12 (EXAMPLE 44): 36 triplets in 24 different positions. Each
+// triangle has the matrix [1 1/2 1/2; 1/2 1 1/2; 1/2 1/2 1], so
+//     (1, 1): T0, T2 and T3 give 1 each         1 + 1 + 1 = 3 = M[1][1]
+//     (0, 4): T0 and T1 give 1/2 each           1 = M[0][4]
+//     (2, 5): only T2, which gives 1/2
+//     (1, 3): none
+// and added up they give the M of EXAMPLE 44.
 TEST(Assembly2d, MassTripletsAreTheContributionsOfEveryTriangle) {
     const Mesh2D m = rectangle_mesh(2.0, 1.0, 2, 1);
     const std::vector<Triplet> trip = mass_triplets_2d(m, 12.0);
@@ -775,13 +775,13 @@ TEST(Assembly2d, MassTripletsAreTheContributionsOfEveryTriangle) {
     expect_matrix(csr_from_triplets(m.num_nodes(), trip), want, 24);
 }
 
-// ESEMPIO 53. Le due liste su mesh di forme diverse, confrontate con il conto lento dell'ESEMPIO 40 (la tabella
-// piena in cui ogni triangolo somma a mano i suoi 9 numeri):
-//   - 9 terne per triangolo;
-//   - tutti gli indici minori del numero dei nodi (altrimenti csr_from_triplets lancia std::invalid_argument);
-//   - sommate, danno la stessa K (e la stessa M) del conto lento.
-// Le mesh: un rettangolo, il triangolo con un nodo dentro, il quadrilatero irregolare, due triangoli di area
-// diversa e la mesh con due nodi fuori da ogni triangolo.
+// EXAMPLE 53. The two lists on meshes of different shapes, compared with the slow computation of EXAMPLE 40 (the full
+// table in which each triangle adds by hand its 9 numbers):
+//   - 9 triplets per triangle;
+//   - all the indices less than the number of nodes (otherwise csr_from_triplets throws std::invalid_argument);
+//   - added up, they give the same K (and the same M) as the slow computation.
+// The meshes: a rectangle, the triangle with a node inside, the irregular quadrilateral, two triangles of
+// different area and the mesh with two nodes outside every triangle.
 TEST(Assembly2d, TripletsSumToTheSlowDenseAssemblyOnEveryKindOfMesh) {
     std::vector<Mesh2D> meshes;
     meshes.push_back(rectangle_mesh(3.0, 1.5, 4, 3));
@@ -791,7 +791,7 @@ TEST(Assembly2d, TripletsSumToTheSlowDenseAssemblyOnEveryKindOfMesh) {
     meshes.push_back(mesh_with_nodes_outside_every_triangle());
 
     for (std::size_t index = 0; index < meshes.size(); ++index) {
-        SCOPED_TRACE("mesh numero " + std::to_string(index));
+        SCOPED_TRACE("mesh number " + std::to_string(index));
         const Mesh2D& m = meshes[index];
 
         const std::vector<Triplet> stiff = stiffness_triplets_2d(m, 3.5);

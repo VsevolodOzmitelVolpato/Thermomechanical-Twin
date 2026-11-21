@@ -8,55 +8,55 @@
 #include "Fem1D.h"
 #include "Verification2D.h"
 
-// ---- Il seno che decade in 2D: verifica dello schema theta ----------------------------------------------------
+// ---- The decaying sine in 2D: verification of the theta scheme ------------------------------------------------
 //
-// In 1D abbiamo controllato lo schema theta con un problema di cui si conosce la soluzione esatta, il seno che decade
-// (decaying_sine_error). Qui facciamo lo stesso per la lastra: decaying_sine_error_2d(n, dt, n_steps, theta).
+// In 1D we checked the theta scheme with a problem whose exact solution is known, the decaying sine
+// (decaying_sine_error). Here we do the same for the plate: decaying_sine_error_2d(n, dt, n_steps, theta).
 //
-// IL PROBLEMA. Il quadrato [0, 1] x [0, 1], rho_c = 1, k = 1, nessuna sorgente, T = 0 su tutto il bordo e
-// temperatura iniziale T0(x, y) = sin(pi x) sin(pi y). L'equazione del calore e'  T_t = T_xx + T_yy  e per questa T0
+// THE PROBLEM. The square [0, 1] x [0, 1], rho_c = 1, k = 1, no source, T = 0 on the whole boundary and
+// initial temperature T0(x, y) = sin(pi x) sin(pi y). The heat equation is  T_t = T_xx + T_yy  and for this T0
 //
 //     T_xx + T_yy = -2 pi^2 T0
 //
-// quindi la forma resta quella del seno e solo l'ampiezza decade:
+// so the shape stays that of the sine and only the amplitude decays:
 //
 //     T(x, y, t) = exp(-2 pi^2 t) sin(pi x) sin(pi y)                              (2 pi^2 = 19.74...).
 //
-// La funzione risolve con la mesh di n x n celle e n_steps passi di ampiezza dt, e restituisce l'errore L2
-// (l2_error_2d) rispetto a questa soluzione, presa nei nodi, al tempo finale t = n_steps * dt.
+// The function solves with the mesh of n x n cells and n_steps steps of size dt, and returns the L2 error
+// (l2_error_2d) with respect to this solution, taken at the nodes, at the final time t = n_steps * dt.
 //
-// GLI ORACOLI. In 1D il seno era un autovettore delle matrici, e a mano si trovava la soluzione ESATTA DELLO SCHEMA
-// (g^n sin(pi x), amplification_factor). Sulla mesh di triangoli la matrice di massa collega ogni nodo a due vicini
-// sulla diagonale (e non agli altri due), quindi il seno non e' piu' un autovettore e per n qualunque non c'e' una
-// formula. Le risposte giuste vengono da:
-//   - la mesh 2 x 2, che ha una sola incognita e quindi una formula chiusa (ESEMPI 109 e 110);
-//   - numeri calcolati per un'altra strada, con matrici piene e senza gradiente coniugato (ESEMPIO 111);
-//   - gli ordini di convergenza, nello spazio e nel tempo (ESEMPI 112, 113 e 114).
+// THE ORACLES. In 1D the sine was an eigenvector of the matrices, and by hand one found the EXACT SOLUTION OF THE SCHEME
+// (g^n sin(pi x), amplification_factor). On the triangle mesh the mass matrix links each node to two diagonal neighbors
+// (and not to the other two), so the sine is no longer an eigenvector and for general n there is no
+// closed formula. The right answers come from:
+//   - the 2 x 2 mesh, which has a single unknown and therefore a closed formula (EXAMPLES 109 and 110);
+//   - numbers computed along another route, with full matrices and without conjugate gradient (EXAMPLE 111);
+//   - the convergence orders, in space and in time (EXAMPLES 112, 113 and 114).
 //
-// DUE ERRORI CHE SI SOMMANO. Rispetto alla soluzione esatta il metodo sbaglia per due motivi: la mesh (un errore E_h
-// che va come h^2 e resta anche con dt -> 0) e il passo nel tempo (un errore E_dt che va come dt^p, con p = 1 per
-// Eulero all'indietro e p = 2 per Crank-Nicolson). Con un solo seno che decade i due si sommano:
+// TWO ERRORS THAT ADD UP. With respect to the exact solution the method is wrong for two reasons: the mesh (an error E_h
+// that goes like h^2 and remains even with dt -> 0) and the time step (an error E_dt that goes like dt^p, with p = 1 for
+// backward Euler and p = 2 for Crank-Nicolson). With a single decaying sine the two add up:
 //
-//     errore = E_h + E_dt,        E_h non dipende da dt.
+//     error = E_h + E_dt,        E_h does not depend on dt.
 //
-// Per Crank-Nicolson E_h ed E_dt hanno lo stesso segno (la temperatura calcolata sta sotto quella esatta: decade
-// troppo in fretta). Per Eulero all'indietro E_dt ha il segno opposto (sta sopra: decade troppo piano).
+// For Crank-Nicolson E_h and E_dt have the same sign (the computed temperature is below the exact one: it decays
+// too fast). For backward Euler E_dt has the opposite sign (it is above: it decays too slowly).
 //
-// COME SI MISURA L'ORDINE NEL TEMPO. In 1D bastava una mesh molto fine (N = 400), cosi' E_h era trascurabile. In 2D una
-// mesh cosi' fine costa troppo (a n = 64, senza ottimizzazioni, un passo prende circa 0.1 s) e il rapporto
-// e(dt) / e(dt / 2) verrebbe sporcato da E_h. Si fanno invece tre calcoli, con dt, dt / 2 e dt / 4, e si guardano le
-// DIFFERENZE fra calcoli successivi, in cui E_h si cancella:
+// HOW THE ORDER IN TIME IS MEASURED. In 1D a very fine mesh was enough (N = 400), so E_h was negligible. In 2D such a
+// fine mesh costs too much (at n = 64, without optimizations, one step takes about 0.1 s) and the ratio
+// e(dt) / e(dt / 2) would be spoiled by E_h. Instead three runs are made, with dt, dt / 2 and dt / 4, and one looks at the
+// DIFFERENCES between successive runs, in which E_h cancels:
 //
 //     d1 = e(dt) - e(dt / 2) = E_dt(dt) - E_dt(dt / 2) = C dt^p (1 - 2^-p)
 //     d2 = e(dt / 2) - e(dt / 4)                       = C (dt / 2)^p (1 - 2^-p)            =>   d1 / d2 = 2^p.
 //
-// Quindi  p = observed_order(d1, d2, 2)  (la funzione dell'ordine in spazio, applicata alle differenze).
-// Attenzione: e e' una norma, sempre positiva, e non ricorda il segno di E_h + E_dt. La sottrazione vale solo se quel
-// segno e' lo stesso nei tre calcoli: con Eulero all'indietro serve un dt abbastanza grande da far dominare E_dt.
+// So  p = observed_order(d1, d2, 2)  (the function for the order in space, applied to the differences).
+// Warning: e is a norm, always positive, and it does not remember the sign of E_h + E_dt. The subtraction holds only if that
+// sign is the same in the three runs: with backward Euler a dt large enough to make E_dt dominate is needed.
 
 namespace {
 
-// L'errore atteso sulla mesh 2 x 2 (ESEMPIO 110): |gamma^n_steps - exp(-2 pi^2 n_steps dt)| / sqrt(8), con
+// The expected error on the 2 x 2 mesh (EXAMPLE 110): |gamma^n_steps - exp(-2 pi^2 n_steps dt)| / sqrt(8), with
 // gamma = (1 - 32 (1 - theta) dt) / (1 + 32 theta dt).
 double two_by_two_error(double dt, std::size_t n_steps, double theta) {
     const double pi = std::acos(-1.0);
@@ -67,53 +67,53 @@ double two_by_two_error(double dt, std::size_t n_steps, double theta) {
 
 }  // namespace
 
-// ESEMPIO 107. Con 0 passi la temperatura finale e' quella iniziale, e T0 e' gia' la soluzione esatta al tempo 0:
-// l'errore e' 0 (a meno degli arrotondamenti), qualunque siano n, dt e theta.
+// EXAMPLE 107. With 0 steps the final temperature is the initial one, and T0 is already the exact solution at time 0:
+// the error is 0 (up to rounding), whatever n, dt and theta.
 TEST(DecayingSine2D, ZeroStepsGiveZeroError) {
     EXPECT_NEAR(decaying_sine_error_2d(4, 0.01, 0, 0.5), 0.0, 1e-14);
     EXPECT_NEAR(decaying_sine_error_2d(9, 0.3, 0, 1.0), 0.0, 1e-14);
     EXPECT_NEAR(decaying_sine_error_2d(2, 1.0, 0, 0.0), 0.0, 1e-14);
 }
 
-// ESEMPIO 108. n = 1: una sola cella, 4 nodi tutti sul bordo, nessuna incognita. La temperatura e' 0 in tutti i nodi a
-// ogni passo, e la soluzione esatta nei 4 nodi e' 0 (sin(pi) in un computer vale 1.2e-16, un arrotondamento): errore 0
-// qualunque siano dt, passi e theta. E' il caso piu' piccolo accettato: n = 1 e' valido, n = 0 no (ESEMPIO 115).
+// EXAMPLE 108. n = 1: a single cell, 4 nodes all on the boundary, no unknowns. The temperature is 0 at all nodes at
+// every step, and the exact solution at the 4 nodes is 0 (sin(pi) in a computer is 1.2e-16, a rounding): error 0
+// whatever dt, steps and theta. It is the smallest accepted case: n = 1 is valid, n = 0 is not (EXAMPLE 115).
 TEST(DecayingSine2D, SingleCellMeshHasNothingToSolve) {
     EXPECT_NEAR(decaying_sine_error_2d(1, 0.01, 3, 0.5), 0.0, 1e-12);
     EXPECT_NEAR(decaying_sine_error_2d(1, 0.5, 1, 1.0), 0.0, 1e-12);
     EXPECT_NEAR(decaying_sine_error_2d(1, 0.001, 10, 0.0), 0.0, 1e-12);
 }
 
-// ESEMPIO 109. n = 2, Eulero all'indietro (theta = 1), UN passo di dt = 0.01, a mano. Come nell'ESEMPIO 92 i nodi sono
-// 9: 8 sul bordo (T = 0) e uno solo al centro c = (1/2, 1/2), quindi c'e' una sola incognita, T_c.
-//   - Dall'ESEMPIO 92: K[c][c] = 4 k = 4. Il centro sta in 6 triangoli di area 1/8 e in ognuno la massa M[c][c] vale
+// EXAMPLE 109. n = 2, backward Euler (theta = 1), ONE step of dt = 0.01, by hand. As in EXAMPLE 92 the nodes are
+// 9: 8 on the boundary (T = 0) and only one at the center c = (1/2, 1/2), so there is a single unknown, T_c.
+//   - From EXAMPLE 92: K[c][c] = 4 k = 4. The center belongs to 6 triangles of area 1/8 and in each of them the mass M[c][c] is
 //     rho_c A / 6: M[c][c] = 6 * (1/8) / 6 = 1/8.
-//   - Gli altri nodi hanno T = 0 sempre, e non c'e' sorgente: la riga del centro di (M + dt K) T_new = M T_old e'
+//   - The other nodes always have T = 0, and there is no source: the row of the center of (M + dt K) T_new = M T_old is
 //         (1/8 + 4 dt) T_c,new = 1/8 T_c,old.
-//   - Nel centro T0 = sin(pi/2) sin(pi/2) = 1, quindi T_c,new = (1/8) / (1/8 + 0.04) = 0.125 / 0.165 = 0.75757...
-//   - La soluzione esatta nel centro: exp(-2 pi^2 0.01) = exp(-0.19739...) = 0.820868...
-//   - L'errore nel centro e' e_c = 0.757575... - 0.820868... = -0.063292...; negli altri 8 nodi e' (quasi) 0: T = 0 e
-//     la soluzione esatta vale al massimo 1e-16. Quindi
+//   - At the center T0 = sin(pi/2) sin(pi/2) = 1, so T_c,new = (1/8) / (1/8 + 0.04) = 0.125 / 0.165 = 0.75757...
+//   - The exact solution at the center: exp(-2 pi^2 0.01) = exp(-0.19739...) = 0.820868...
+//   - The error at the center is e_c = 0.757575... - 0.820868... = -0.063292...; at the other 8 nodes it is (almost) 0: T = 0 and
+//     the exact solution is at most 1e-16. Therefore
 //         || e ||_L2 = sqrt(e^T M e) = |e_c| sqrt(M[c][c]) = 0.063292... / sqrt(8) = 0.022377...
 TEST(DecayingSine2D, TwoByTwoBackwardEulerMatchesHandComputation) {
     EXPECT_NEAR(decaying_sine_error_2d(2, 0.01, 1, 1.0), 2.237744055204e-02, 1e-11);
 }
 
-// ESEMPIO 110. Sempre n = 2, ma per piu' passi e per ogni theta. Un passo dello schema theta nel centro e'
+// EXAMPLE 110. Still n = 2, but for more steps and for every theta. One step of the theta scheme at the center is
 //     (1/8 + theta dt 4) T_new = (1/8 - (1 - theta) dt 4) T_old,
-// cioe' T_new = gamma T_old con
-//     gamma = (1 - 32 (1 - theta) dt) / (1 + 32 theta dt)        (si moltiplica sopra e sotto per 8).
-// Dopo n_steps passi T_c = gamma^n_steps (T_c = 1 all'inizio) e l'errore e'
+// i.e. T_new = gamma T_old with
+//     gamma = (1 - 32 (1 - theta) dt) / (1 + 32 theta dt)        (multiply numerator and denominator by 8).
+// After n_steps steps T_c = gamma^n_steps (T_c = 1 at the start) and the error is
 //     | gamma^n_steps - exp(-2 pi^2 n_steps dt) | / sqrt(8).
-// I casi (gli errori attesi, con la formula, sono scritti accanto):
-//   dt = 0.01,  2 passi, theta = 1/2:   gamma =  0.7241   errore 5.2838e-02
-//   dt = 0.005, 4 passi, theta = 1:     gamma =  0.8621   errore 4.2969e-02
-//   dt = 0.002, 5 passi, theta = 0:     gamma =  0.9360   errore 3.6221e-02   (Eulero in avanti, stabile: dt < 1/16)
-//   dt = 0.01,  3 passi, theta = 0.3:   gamma =  0.7080   errore 7.0068e-02
-//   dt = 0.2,   3 passi, theta = 1/2:   gamma = -0.5238   errore 5.0816e-02
-// L'ultimo e' un passo molto grande: Crank-Nicolson e' stabile (|gamma| < 1) ma gamma e' NEGATIVO, la temperatura
-// calcolata cambia segno a ogni passo mentre quella vera decade senza oscillare. La formula lo riproduce, e il codice
-// deve farlo uguale.
+// The cases (the expected errors, with the formula, are written next to them):
+//   dt = 0.01,  2 steps, theta = 1/2:   gamma =  0.7241   error  5.2838e-02
+//   dt = 0.005, 4 steps, theta = 1:     gamma =  0.8621   error  4.2969e-02
+//   dt = 0.002, 5 steps, theta = 0:     gamma =  0.9360   error  3.6221e-02   (forward Euler, stable: dt < 1/16)
+//   dt = 0.01,  3 steps, theta = 0.3:   gamma =  0.7080   error  7.0068e-02
+//   dt = 0.2,   3 steps, theta = 1/2:   gamma = -0.5238   error  5.0816e-02
+// The last one is a very large step: Crank-Nicolson is stable (|gamma| < 1) but gamma is NEGATIVE, the computed temperature
+// changes sign at every step while the true one decays without oscillating. The formula reproduces this, and the code
+// must do the same.
 TEST(DecayingSine2D, TwoByTwoMatchesClosedFormForEveryScheme) {
     struct Case {
         double dt;
@@ -129,15 +129,15 @@ TEST(DecayingSine2D, TwoByTwoMatchesClosedFormForEveryScheme) {
     }
 }
 
-// ESEMPIO 111. Numeri calcolati per un'altra strada: la mesh, le matrici M e K, lo schema theta e l'errore L2 sono
-// stati riscritti da zero in Python con matrici piene e l'eliminazione di Gauss (nessun gradiente coniugato).
-//     n = 4, dt = 5e-4,  100 passi, theta = 1/2:   2.452250395721e-02
-//     n = 8, dt = 0.01,    5 passi, theta = 1:     1.018063914618e-02
-//     n = 8, dt = 0.001,  10 passi, theta = 0:     4.073834024549e-03
-//     n = 6, dt = 0.002,  25 passi, theta = 0.3:   1.338984429158e-02
-// Il C++ e il Python coincidono su queste cifre a circa 1e-10 (in valore relativo): il test chiede 1e-7, perche' il
-// gradiente coniugato si ferma a un residuo di 1e-12 e non da' lo stesso rumore di Gauss. Se cambiano delle cifre
-// significative e' cambiato il problema o lo schema, non l'arrotondamento.
+// EXAMPLE 111. Numbers computed along another route: the mesh, the matrices M and K, the theta scheme and the L2 error were
+// rewritten from scratch in Python with full matrices and Gaussian elimination (no conjugate gradient).
+//     n = 4, dt = 5e-4,  100 steps, theta = 1/2:   2.452250395721e-02
+//     n = 8, dt = 0.01,    5 steps, theta = 1:     1.018063914618e-02
+//     n = 8, dt = 0.001,  10 steps, theta = 0:     4.073834024549e-03
+//     n = 6, dt = 0.002,  25 steps, theta = 0.3:   1.338984429158e-02
+// C++ and Python agree on these digits to about 1e-10 (in relative terms): the test asks for 1e-7, because the
+// conjugate gradient stops at a residual of 1e-12 and does not give the same noise as Gauss. If some significant
+// digits change, the problem or the scheme has changed, not the rounding.
 TEST(DecayingSine2D, MatchesNumbersFromADenseReference) {
     struct Case {
         std::size_t n;
@@ -157,11 +157,11 @@ TEST(DecayingSine2D, MatchesNumbersFromADenseReference) {
     }
 }
 
-// ESEMPIO 112. SPAZIO. Con elementi lineari l'errore L2 va come h^2: quando n raddoppia l'errore si divide per 4, cioe'
-// l'ordine osservato e' 2. Crank-Nicolson con dt = 1e-3 e 50 passi (t = 0.05): l'errore nel tempo, circa 6e-6, e' l'1%
-// di quello di mesh a n = 32 (4.5e-4) e si trascura. Misurato (errori 6.90e-3, 1.78e-3, 4.53e-4): ordine 1.95 da 8 a
-// 16 e 1.97 da 16 a 32. Si parte da n = 8 perche' con una mesh piu' rada (da 4 a 8 l'ordine e' 1.83) non siamo
-// ancora nell'andamento vero.
+// EXAMPLE 112. SPACE. With linear elements the L2 error goes like h^2: when n doubles the error is divided by 4, i.e.
+// the observed order is 2. Crank-Nicolson with dt = 1e-3 and 50 steps (t = 0.05): the error in time, about 6e-6, is 1%
+// of the mesh error at n = 32 (4.5e-4) and is neglected. Measured (errors 6.90e-3, 1.78e-3, 4.53e-4): order 1.95 from 8 to
+// 16 and 1.97 from 16 to 32. We start from n = 8 because with a coarser mesh (from 4 to 8 the order is 1.83) we are not
+// yet in the true asymptotic regime.
 TEST(DecayingSine2D, SpatialConvergenceIsSecondOrder) {
     const double dt = 1e-3;
     const std::size_t n_steps = 50;
@@ -174,9 +174,9 @@ TEST(DecayingSine2D, SpatialConvergenceIsSecondOrder) {
     }
 }
 
-// ESEMPIO 113. TEMPO, Crank-Nicolson (theta = 1/2): ordine 2. Mesh 8 x 8, fino a t = 0.05 con 4, 8 e 16 passi. Gli
-// errori sono 7.876e-3, 7.139e-3, 6.956e-3: quasi uguali, perche' E_h (circa 6.9e-3) non cala. Il rapporto diretto
-// darebbe un ordine di 0.14 e 0.04. Le differenze sono d1 = 7.38e-4 e d2 = 1.83e-4: rapporto 4.03, ordine 2.01.
+// EXAMPLE 113. TIME, Crank-Nicolson (theta = 1/2): order 2. 8 x 8 mesh, up to t = 0.05 with 4, 8 and 16 steps. The
+// errors are 7.876e-3, 7.139e-3, 6.956e-3: almost equal, because E_h (about 6.9e-3) does not go down. The direct ratio
+// would give an order of 0.14 and 0.04. The differences are d1 = 7.38e-4 and d2 = 1.83e-4: ratio 4.03, order 2.01.
 TEST(DecayingSine2D, TemporalConvergenceOfCrankNicolsonIsSecondOrder) {
     const double t = 0.05;
     const double e1 = decaying_sine_error_2d(8, t / 4, 4, 0.5);
@@ -190,11 +190,11 @@ TEST(DecayingSine2D, TemporalConvergenceOfCrankNicolsonIsSecondOrder) {
     EXPECT_NEAR(observed_order(d1, d2, 2.0), 2.0, 0.1) << "e = " << e1 << ", " << e2 << ", " << e3;
 }
 
-// ESEMPIO 114. TEMPO, Eulero all'indietro (theta = 1): ordine 1. Mesh 16 x 16, fino a t = 0.05 con 8, 16 e 32 passi.
-// Gli errori sono 9.07e-3, 3.80e-3, 1.09e-3. Il rapporto diretto darebbe 1.26 e 1.81 (sbagliato: E_h = 1.8e-3 ha il
-// segno opposto a E_dt e la norma lo dimentica). Le differenze sono d1 = 5.27e-3 e d2 = 2.71e-3: rapporto 1.94, ordine
-// 0.96; per Eulero all'indietro l'ordine si avvicina a 1 da sotto quando dt cala (0.90 con 4, 8, 16 passi). Con 64
-// passi E_dt (circa 1.4e-3) scenderebbe sotto E_h e l'errore cambierebbe segno: la sottrazione non varrebbe piu'.
+// EXAMPLE 114. TIME, backward Euler (theta = 1): order 1. 16 x 16 mesh, up to t = 0.05 with 8, 16 and 32 steps.
+// The errors are 9.07e-3, 3.80e-3, 1.09e-3. The direct ratio would give 1.26 and 1.81 (wrong: E_h = 1.8e-3 has the
+// opposite sign to E_dt and the norm forgets it). The differences are d1 = 5.27e-3 and d2 = 2.71e-3: ratio 1.94, order
+// 0.96; for backward Euler the order approaches 1 from below as dt decreases (0.90 with 4, 8, 16 steps). With 64
+// steps E_dt (about 1.4e-3) would drop below E_h and the error would change sign: the subtraction would no longer hold.
 TEST(DecayingSine2D, TemporalConvergenceOfBackwardEulerIsFirstOrder) {
     const double t = 0.05;
     const double e1 = decaying_sine_error_2d(16, t / 8, 8, 1.0);
@@ -208,9 +208,9 @@ TEST(DecayingSine2D, TemporalConvergenceOfBackwardEulerIsFirstOrder) {
     EXPECT_NEAR(observed_order(d1, d2, 2.0), 1.0, 0.1) << "e = " << e1 << ", " << e2 << ", " << e3;
 }
 
-// ESEMPIO 115. Dati non validi: nessuna cella (n = 0): std::invalid_argument. Passo dt nullo, negativo o NaN, theta
-// fuori da [0, 1] o NaN: se ne accorge solve_transient_2d (ESEMPIO 104), e l'eccezione deve arrivare fino a chi
-// chiama. I casi al limite, theta = 0 e theta = 1, sono validi.
+// EXAMPLE 115. Invalid data: no cells (n = 0): std::invalid_argument. Time step dt zero, negative or NaN, theta
+// outside [0, 1] or NaN: solve_transient_2d notices (EXAMPLE 104), and the exception must propagate all the way to the
+// caller. The limiting cases, theta = 0 and theta = 1, are valid.
 TEST(DecayingSine2D, RejectsInvalidArguments) {
     const double not_a_number = std::numeric_limits<double>::quiet_NaN();
 
@@ -225,20 +225,20 @@ TEST(DecayingSine2D, RejectsInvalidArguments) {
     EXPECT_NO_THROW(decaying_sine_error_2d(4, 0.01, 1, 1.0));
 }
 
-// ESEMPIO 116. I numeri delle tre tabelle del seno che decade in 2D, quelle che apps/convergence_study stampa per il
-// README: SPAZIO con Crank-Nicolson (dt = 2.5e-4, 200 passi) e TEMPO con Eulero all'indietro e con Crank-Nicolson
-// (mesh 32 x 32, dt = 0.05 / passi). Tutte arrivano a t = 0.05. Misurati con questo metodo e ricontrollati in Python
-// (matrici sparse e un solutore diretto, niente gradiente coniugato): coincidono fino alle 7 cifre scritte qui.
+// EXAMPLE 116. The numbers of the three tables of the decaying sine in 2D, the ones that apps/convergence_study prints for the
+// README: SPACE with Crank-Nicolson (dt = 2.5e-4, 200 steps) and TIME with backward Euler and with Crank-Nicolson
+// (32 x 32 mesh, dt = 0.05 / steps). All of them reach t = 0.05. Measured with this method and re-checked in Python
+// (sparse matrices and a direct solver, no conjugate gradient): they agree to the 7 digits written here.
 //
-//     SPAZIO (Crank-Nicolson, dt = 2.5e-4, 200 passi)
+//     SPACE (Crank-Nicolson, dt = 2.5e-4, 200 steps)
 //         n = 4:  2.452116e-02      n = 8:  6.894963e-03      n = 16:  1.776746e-03
-//     TEMPO (mesh 32 x 32)                       4 passi        8 passi        16 passi
-//         Eulero all'indietro (theta = 1):       2.016970e-02   1.035828e-02   5.092920e-03
+//     TIME  (mesh 32 x 32)                       4 steps        8 steps        16 steps
+//         Backward Euler      (theta = 1):       2.016970e-02   1.035828e-02   5.092920e-03
 //         Crank-Nicolson (theta = 1/2):          1.386333e-03   6.800985e-04   5.054105e-04
 //
-// Il test fissa le righe poco costose: le altre (n = 32 e n = 64 nello spazio, 32 e 64 passi nel tempo) costano di
-// piu' senza ottimizzazioni. Se cambia il metodo (lo schema theta, il solutore, la norma) cambiano i numeri, e il test
-// dice che le tabelle del README vanno rifatte.
+// The test pins the inexpensive rows: the others (n = 32 and n = 64 in space, 32 and 64 steps in time) cost
+// more without optimizations. If the method changes (the theta scheme, the solver, the norm) the numbers change, and the test
+// says that the README tables must be redone.
 TEST(DecayingSine2D, ErrorsMatchTheTablesInTheReadme) {
     struct Case {
         std::size_t n;

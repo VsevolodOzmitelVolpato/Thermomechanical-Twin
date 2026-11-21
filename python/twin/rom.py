@@ -1,3 +1,6 @@
+"""Reduced-order model of the thermo-mechanical plate: the heat equation on a POD basis, and the displacement and
+stress modes that go with it."""
+
 import operator
 
 import numpy as np
@@ -10,6 +13,13 @@ BASIS_TOLERANCE = 1e-8
 
 
 class ThermoMechanicalROM:
+    """Reduced-order model of the 2D thermo-mechanical plate.
+
+    The offline phase (the constructor) projects the heat equation on a thermal basis and computes the displacement
+    and stress modes with the C++ model; the online phase (solve) then needs only small dense systems and matrix
+    products. The five numbers of the study (k, rho_c, q, E, alpha) enter only in the online phase, so one object
+    serves all of them. num_modes is the number of thermal modes.
+    """
 
     def __init__(self, mesh, basis, load, fixed_nodes, fixed_values, T0, fixed_dofs, nu, T_ref):
         """OFFLINE phase.

@@ -7,53 +7,53 @@
 
 #include "Elasticity2D.h"
 
-// ---- La legge del materiale in deformazione piana ------------------------------------------------------------
+// ---- The material law in plane strain ------------------------------------------------------------------------
 //
-// Da qui in poi la lastra non e' solo calda: si DEFORMA. Un punto (x, y) si sposta di (u, v) e il materiale
-// risponde con una tensione. In questo passo ci sono solo le due formule del materiale (plane_strain_matrix e
-// plane_strain_thermal_strain): la mesh non c'e' ancora.
+// From here on the plate is no longer just hot: it DEFORMS. A point (x, y) moves by (u, v) and the material
+// responds with a stress. In this step there are only the two material formulas (plane_strain_matrix and
+// plane_strain_thermal_strain): the mesh is not there yet.
 //
-// LA DEFORMAZIONE PIANA. La lastra e' la sezione di un corpo lunghissimo in z, che in z non si puo' allungare:
-// epsilon_zz = 0. (Per una lastra sottile e libera si usa un'altra ipotesi, la tensione piana: non e' il nostro caso.)
-// I numeri che contano nel piano sono 3, nell'ordine (xx, yy, xy):
+// PLANE STRAIN. The plate is the cross-section of a very long body in z, which cannot stretch in z:
+// epsilon_zz = 0. (For a thin, free plate a different hypothesis is used, plane stress: it is not our case.)
+// The numbers that matter in the plane are 3, in the order (xx, yy, xy):
 //
 //     epsilon = (du/dx, dv/dy, du/dy + dv/dx),        sigma = (sigma_xx, sigma_yy, sigma_xy).
 //
-// L'ultimo, gamma_xy = du/dy + dv/dx, e' lo scorrimento "ingegneristico": il doppio della deformazione di taglio vera.
-// Per questo nella matrice D il termine di taglio e' mu e non 2 mu.
+// The last one, gamma_xy = du/dy + dv/dx, is the "engineering" shear strain: twice the true shear strain.
+// That is why in the matrix D the shear term is mu and not 2 mu.
 //
-// IL CALORE. Un materiale con coefficiente di dilatazione alpha, scaldato di dT = T - T_ref, vorrebbe dilatarsi di
-// alpha dT in ogni direzione. La tensione nasce solo dalla parte di deformazione che NON e' dovuta al calore:
+// HEAT. A material with expansion coefficient alpha, heated by dT = T - T_ref, would like to expand by
+// alpha dT in every direction. The stress arises only from the part of the strain that is NOT due to heat:
 //
 //     sigma = D (epsilon - epsilon_th).
 //
-// DA DOVE VENGONO D E epsilon_th. La legge di Hooke in 3D con la dilatazione termica e'
+// WHERE D AND epsilon_th COME FROM. Hooke's law in 3D with thermal expansion is
 //
-//     eps_xx = [sigma_xx - nu (sigma_yy + sigma_zz)] / E + alpha dT    (e le altre due uguali, scambiando gli indici),
+//     eps_xx = [sigma_xx - nu (sigma_yy + sigma_zz)] / E + alpha dT    (the other two are the same, with the indices swapped),
 //
-// con lo scorrimento  gamma_xy = 2 (1 + nu) sigma_xy / E. In deformazione piana eps_zz = 0, e la terza equazione da'
+// with the shear strain  gamma_xy = 2 (1 + nu) sigma_xy / E. In plane strain eps_zz = 0, and the third equation gives
 //
 //     sigma_zz = nu (sigma_xx + sigma_yy) - E alpha dT.
 //
-// Sostituendo sigma_zz nelle altre due, nel piano resta
+// Substituting sigma_zz into the other two, in the plane what remains is
 //
-//     eps_xx = [(1 - nu^2) sigma_xx - nu (1 + nu) sigma_yy] / E + (1 + nu) alpha dT          (analoga per eps_yy).
+//     eps_xx = [(1 - nu^2) sigma_xx - nu (1 + nu) sigma_yy] / E + (1 + nu) alpha dT          (analogous for eps_yy).
 //
-// Si legge cosi':
-//   - la dilatazione termica che vale nel piano e' epsilon_th = (1 + nu) alpha dT (1, 1, 0), NON alpha dT: il corpo e'
-//     trattenuto in z, e la dilatazione che in z non puo' avvenire si scarica nel piano (ESEMPI 122 e 123);
-//   - la parte elastica e' epsilon_el = C sigma con la matrice di cedevolezza
+// It reads as follows:
+//   - the thermal expansion that applies in the plane is epsilon_th = (1 + nu) alpha dT (1, 1, 0), NOT alpha dT: the body is
+//     held in z, and the expansion that cannot happen in z is released into the plane (EXAMPLES 122 and 123);
+//   - the elastic part is epsilon_el = C sigma with the compliance matrix
 //         C = 1 / E * [[1 - nu^2, -nu (1 + nu), 0], [-nu (1 + nu), 1 - nu^2, 0], [0, 0, 2 (1 + nu)]],
-//     e D e' la sua inversa (ESEMPIO 120). Si inverte a mano con i coefficienti di Lame
+//     and D is its inverse (EXAMPLE 120). It is inverted by hand with the Lame coefficients
 //         lambda = E nu / ((1 + nu) (1 - 2 nu)),        mu = E / (2 (1 + nu)),
-//     e viene  D = [[lambda + 2 mu, lambda, 0], [lambda, lambda + 2 mu, 0], [0, 0, mu]].
+//     and the result is  D = [[lambda + 2 mu, lambda, 0], [lambda, lambda + 2 mu, 0], [0, 0, mu]].
 //
-// VALIDITA'. E > 0 e -1 < nu < 1/2. Con nu = 1/2 (materiale incomprimibile) lambda e' infinito.
+// VALIDITY. E > 0 and -1 < nu < 1/2. With nu = 1/2 (incompressible material) lambda is infinite.
 
 namespace {
 
-// La matrice di cedevolezza C della deformazione piana, quella del commento sopra: ricavata dalla legge di Hooke in 3D
-// senza passare da lambda e mu. Serve all'ESEMPIO 120 come controllo su un'altra strada.
+// The compliance matrix C of plane strain, the one in the comment above: derived from Hooke's law in 3D
+// without going through lambda and mu. It is used by EXAMPLE 120 as a check along a different route.
 Matrix3 plane_strain_compliance(double E, double nu) {
     Matrix3 C{};
     C[0][0] = (1.0 - nu * nu) / E;
@@ -66,10 +66,10 @@ Matrix3 plane_strain_compliance(double E, double nu) {
 
 }  // namespace
 
-// ESEMPIO 117. E = 1 e nu = 1/4, a mano. I coefficienti di Lame:
+// EXAMPLE 117. E = 1 and nu = 1/4, by hand. The Lame coefficients:
 //     lambda = E nu / ((1 + nu) (1 - 2 nu)) = 0.25 / (1.25 * 0.5) = 0.25 / 0.625 = 0.4
 //     mu     = E / (2 (1 + nu))             = 1 / 2.5 = 0.4
-// (con nu = 1/4 coincidono). Quindi lambda + 2 mu = 1.2 e
+// (with nu = 1/4 they coincide). So lambda + 2 mu = 1.2 and
 //     D = [[1.2, 0.4, 0], [0.4, 1.2, 0], [0, 0, 0.4]].
 TEST(PlaneStrainMatrix, MatchesHandComputationForPoissonOneQuarter) {
     const Matrix3 D = plane_strain_matrix(1.0, 0.25);
@@ -82,9 +82,9 @@ TEST(PlaneStrainMatrix, MatchesHandComputationForPoissonOneQuarter) {
     }
 }
 
-// ESEMPIO 118. Senza effetto Poisson (nu = 0) si ha lambda = 0 e mu = E / 2, quindi D = diag(E, E, E / 2): ogni
-// direzione risponde per conto suo con rigidezza E, e lo scorrimento con il modulo di taglio E / 2. Con E = 3 e'
-// diag(3, 3, 1.5). Poi D e' proporzionale a E: con nu = 0.3, E = 2.5 da' 2.5 volte i numeri di E = 1.
+// EXAMPLE 118. Without the Poisson effect (nu = 0) we get lambda = 0 and mu = E / 2, so D = diag(E, E, E / 2): each
+// direction responds on its own with stiffness E, and the shear strain with the shear modulus E / 2. With E = 3 it is
+// diag(3, 3, 1.5). Then D is proportional to E: with nu = 0.3, E = 2.5 gives 2.5 times the numbers of E = 1.
 TEST(PlaneStrainMatrix, WithoutPoissonEffectIsDiagonalAndProportionalToE) {
     const Matrix3 D = plane_strain_matrix(3.0, 0.0);
     EXPECT_NEAR(D[0][0], 3.0, 1e-14);
@@ -106,11 +106,11 @@ TEST(PlaneStrainMatrix, WithoutPoissonEffectIsDiagonalAndProportionalToE) {
     }
 }
 
-// ESEMPIO 119. Un acciaio: E = 210e9 Pa, nu = 0.3. Con i coefficienti di Lame
+// EXAMPLE 119. A steel: E = 210e9 Pa, nu = 0.3. With the Lame coefficients
 //     lambda = 210e9 * 0.3 / (1.3 * 0.4) = 63e9 / 0.52 = 1575e9 / 13 = 121.1538...e9
 //     mu     = 210e9 / 2.6                = 1050e9 / 13 =                80.7692...e9
-// si ha D[0][0] = lambda + 2 mu = 3675e9 / 13 = 282.6923...e9, D[0][1] = lambda e D[2][2] = mu. Con numeri grandi
-// (1e11) si confronta in valore relativo.
+// we get D[0][0] = lambda + 2 mu = 3675e9 / 13 = 282.6923...e9, D[0][1] = lambda and D[2][2] = mu. With large numbers
+// (1e11) the comparison is made in relative terms.
 TEST(PlaneStrainMatrix, MatchesSteelValues) {
     const Matrix3 D = plane_strain_matrix(210e9, 0.3);
     const double lambda = 1575e9 / 13.0;
@@ -123,13 +123,13 @@ TEST(PlaneStrainMatrix, MatchesSteelValues) {
     EXPECT_NEAR(D[2][2], mu, 1e-12 * 80.8e9);
 }
 
-// ESEMPIO 120. D e' l'inversa della matrice di cedevolezza C ricavata dalla legge di Hooke in 3D con eps_zz = 0 (vedi
-// sopra): D C = I. E' un controllo su una strada diversa dalla formula con lambda e mu. A mano, con E = 1 e nu = 1/4:
-// C = [[0.9375, -0.3125, 0], [-0.3125, 0.9375, 0], [0, 0, 2.5]] e
+// EXAMPLE 120. D is the inverse of the compliance matrix C derived from Hooke's law in 3D with eps_zz = 0 (see
+// above): D C = I. It is a check along a route different from the formula with lambda and mu. By hand, with E = 1 and nu = 1/4:
+// C = [[0.9375, -0.3125, 0], [-0.3125, 0.9375, 0], [0, 0, 2.5]] and
 //     1.2 * 0.9375 + 0.4 * (-0.3125) = 1.125 - 0.125 = 1,
 //     1.2 * (-0.3125) + 0.4 * 0.9375 = -0.375 + 0.375 = 0,
 //     0.4 * 2.5 = 1.
-// Provato per piu' coppie (E, nu), anche con nu negativo (materiali auxetici) e vicino al limite 1/2.
+// Tried for several pairs (E, nu), also with negative nu (auxetic materials) and close to the limit 1/2.
 TEST(PlaneStrainMatrix, IsTheInverseOfTheCompliance) {
     struct Case {
         double E;
@@ -153,13 +153,13 @@ TEST(PlaneStrainMatrix, IsTheInverseOfTheCompliance) {
     }
 }
 
-// ESEMPIO 121. La forma di D, per nu da -0.9 a 0.49:
-//   - simmetrica: D[0][1] = D[1][0];
-//   - normale e taglio non si accoppiano: D[0][2], D[2][0], D[1][2] e D[2][1] valgono 0 (in un materiale isotropo un
-//     allungamento non produce scorrimenti);
-//   - positiva definita: l'energia di deformazione 1/2 epsilon^T D epsilon e' > 0 per ogni epsilon diverso da 0.
-//     Per una matrice di questa forma basta che D[2][2] > 0 e che i due minori in alto a sinistra siano > 0:
-//     D[0][0] > 0 e D[0][0] D[1][1] - D[0][1]^2 > 0 (criterio di Sylvester). Qui D[0][0] D[1][1] - D[0][1]^2 =
+// EXAMPLE 121. The shape of D, for nu from -0.9 to 0.49:
+//   - symmetric: D[0][1] = D[1][0];
+//   - normal and shear are not coupled: D[0][2], D[2][0], D[1][2] and D[2][1] are 0 (in an isotropic material an
+//     elongation produces no shear strain);
+//   - positive definite: the strain energy 1/2 epsilon^T D epsilon is > 0 for every epsilon different from 0.
+//     For a matrix of this form it is enough that D[2][2] > 0 and that the two upper-left minors are > 0:
+//     D[0][0] > 0 and D[0][0] D[1][1] - D[0][1]^2 > 0 (Sylvester's criterion). Here D[0][0] D[1][1] - D[0][1]^2 =
 //     (lambda + 2 mu)^2 - lambda^2 = 4 mu (lambda + mu).
 TEST(PlaneStrainMatrix, IsSymmetricAndPositiveDefinite) {
     for (double nu : {-0.9, -0.5, 0.0, 0.25, 0.49}) {
@@ -178,10 +178,10 @@ TEST(PlaneStrainMatrix, IsSymmetricAndPositiveDefinite) {
     }
 }
 
-// ESEMPIO 122. La dilatazione termica in deformazione piana, a mano: nu = 1/4, alpha = 1e-5, dT = 50. Il materiale
-// vorrebbe dilatarsi di alpha dT = 5e-4; nel piano, trattenuto in z, diventa (1 + nu) alpha dT = 1.25 * 5e-4 = 6.25e-4,
-// uguale in x e in y, senza scorrimento: epsilon_th = (6.25e-4, 6.25e-4, 0). Raffreddando (dT = -50) il segno
-// cambia; con dT = 0 o alpha = 0 e' tutto 0; e' lineare in alpha e in dT.
+// EXAMPLE 122. Thermal expansion in plane strain, by hand: nu = 1/4, alpha = 1e-5, dT = 50. The material
+// would like to expand by alpha dT = 5e-4; in the plane, held in z, it becomes (1 + nu) alpha dT = 1.25 * 5e-4 = 6.25e-4,
+// equal in x and in y, with no shear strain: epsilon_th = (6.25e-4, 6.25e-4, 0). On cooling (dT = -50) the sign
+// changes; with dT = 0 or alpha = 0 everything is 0; it is linear in alpha and in dT.
 TEST(PlaneStrainThermalStrain, MatchesHandComputation) {
     const Vector3 hot = plane_strain_thermal_strain(0.25, 1e-5, 50.0);
     EXPECT_NEAR(hot[0], 6.25e-4, 1e-17);
@@ -205,17 +205,17 @@ TEST(PlaneStrainThermalStrain, MatchesHandComputation) {
     EXPECT_NEAR(doubled[1], 4.0 * hot[1], 1e-16);
 }
 
-// ESEMPIO 123. Il controllo fisico: una lastra bloccata da tutte le parti. Se (eps_xx, eps_yy, gamma_xy) = 0 la
-// dilatazione termica non puo' manifestarsi e la tensione e' sigma = D (0 - epsilon_th) = -D epsilon_th. Il corpo e'
-// bloccato anche in z (deformazione piana), quindi in tutte e 3 le direzioni, e la pressione e' idrostatica:
+// EXAMPLE 123. The physical check: a plate blocked on all sides. If (eps_xx, eps_yy, gamma_xy) = 0 the
+// thermal expansion cannot show up and the stress is sigma = D (0 - epsilon_th) = -D epsilon_th. The body is
+// blocked also in z (plane strain), so in all 3 directions, and the pressure is hydrostatic:
 //     sigma_xx = sigma_yy = sigma_zz = -E alpha dT / (1 - 2 nu).
-// Si ricava dalla legge 3D, senza passare da D ne dal fattore (1 + nu): con eps = 0 in ogni direzione e le tre
-// tensioni uguali a s, 0 = s (1 - 2 nu) / E + alpha dT.
-// A mano per E = 1, nu = 1/4, alpha = 1e-5, dT = 100: epsilon_th = 1.25e-3 e
+// It follows from the 3D law, without going through D or the factor (1 + nu): with eps = 0 in every direction and the three
+// stresses equal to s, 0 = s (1 - 2 nu) / E + alpha dT.
+// By hand for E = 1, nu = 1/4, alpha = 1e-5, dT = 100: epsilon_th = 1.25e-3 and
 //     sigma_xx = -(1.2 + 0.4) * 1.25e-3 = -2e-3,            -E alpha dT / (1 - 2 nu) = -1e-3 / 0.5 = -2e-3,
-//     sigma_zz = nu (sigma_xx + sigma_yy) - E alpha dT = 0.25 * (-4e-3) - 1e-3 = -2e-3:  uguale alle altre due.
-// Senza il fattore (1 + nu) la tensione verrebbe -1.6e-3, sbagliata. Altri casi: un acciaio scaldato di 80 K
-// (E = 210e9, nu = 0.3, alpha = 12e-6: sigma = -504 MPa), un raffreddamento (dT < 0: trazione) e un nu negativo.
+//     sigma_zz = nu (sigma_xx + sigma_yy) - E alpha dT = 0.25 * (-4e-3) - 1e-3 = -2e-3:  equal to the other two.
+// Without the factor (1 + nu) the stress would come out as -1.6e-3, which is wrong. Other cases: a steel heated by 80 K
+// (E = 210e9, nu = 0.3, alpha = 12e-6: sigma = -504 MPa), a cooling (dT < 0: tension) and a negative nu.
 TEST(PlaneStrainThermalStrain, FullyConstrainedPlateIsUnderHydrostaticStress) {
     struct Case {
         double E;
@@ -246,9 +246,9 @@ TEST(PlaneStrainThermalStrain, FullyConstrainedPlateIsUnderHydrostaticStress) {
     }
 }
 
-// ESEMPIO 124. Dati non validi: E nullo, negativo o NaN; nu = 1/2 (incomprimibile), oltre 1/2, uguale a -1, sotto -1
-// o NaN: std::invalid_argument. Valgono invece nu = 0, nu negativi (materiali auxetici) e nu vicino ai limiti. Per la
-// dilatazione termica contano solo i controlli su nu: alpha e dT possono avere qualunque segno.
+// EXAMPLE 124. Invalid data: E zero, negative or NaN; nu = 1/2 (incompressible), above 1/2, equal to -1, below -1
+// or NaN: std::invalid_argument. Valid instead: nu = 0, negative nu (auxetic materials) and nu close to the limits. For
+// thermal expansion only the checks on nu matter: alpha and dT may have any sign.
 TEST(PlaneStrainMatrix, RejectsInvalidArguments) {
     const double not_a_number = std::numeric_limits<double>::quiet_NaN();
 

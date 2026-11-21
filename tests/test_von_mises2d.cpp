@@ -13,47 +13,47 @@
 #include "Mesh2D.h"
 #include "Thermoelastic2D.h"
 
-// ---- La tensione di von Mises: un numero solo per dire quanto e' sollecitato il materiale -------------------------
+// ---- The von Mises stress: a single number to say how stressed the material is ------------------------------------
 //
-// Le tre tensioni del piano (xx, yy, xy) non dicono da sole se il materiale e' in pericolo. Un metallo compresso da
-// tutte le parti con lo stesso valore (come un sasso in fondo al mare) non cede, anche con 1000 MPa; un metallo tirato
-// da una parte sola cede a 300 MPa. A fare cedere il materiale e' la parte di tensione che cambia la FORMA, non la
-// pressione uguale in tutte le direzioni. La tensione equivalente di von Mises e' un numero solo che misura proprio
-// quella parte, ed e' quello che si confronta con la tensione di snervamento. Con le tre tensioni normali (xx, yy, zz)
-// e il taglio xy:
+// The three in-plane stresses (xx, yy, xy) alone do not say whether the material is in danger. A metal compressed from
+// all sides by the same value (like a stone at the bottom of the sea) does not yield, even at 1000 MPa; a metal pulled
+// in one direction only yields at 300 MPa. What makes the material yield is the part of the stress that changes the
+// SHAPE, not the pressure that is equal in all directions. The von Mises equivalent stress is a single number that
+// measures exactly that part, and it is what is compared with the yield stress. With the three normal stresses (xx, yy, zz)
+// and the shear xy:
 //     sigma_vm = sqrt( 1/2 [ (sxx - syy)^2 + (syy - szz)^2 + (szz - sxx)^2 ] + 3 sxy^2 ).
-// Si scrive con le DIFFERENZE fra le tensioni normali: sommare la stessa pressione a tutte e tre non cambia niente. Per
-// la trazione semplice (solo sxx = s) da' |s|: e' cosi' che e' stata tarata.
+// It is written with the DIFFERENCES between the normal stresses: adding the same pressure to all three changes nothing.
+// For simple tension (only sxx = s) it gives |s|: this is how it was calibrated.
 //
-// PERCHE' SERVE sigma_zz. La lastra e' in deformazione piana: non si allunga in z (epsilon_zz = 0). Ma "non si allunga"
-// non vuol dire "nessuna tensione in z": il corpo e' trattenuto, e la tensione in z e' quella che lo trattiene. La
-// legge di Hooke in z, con alpha dT la dilatazione termica che vorrebbe avvenire, dice (nu = coefficiente di Poisson)
-//     0 = epsilon_zz = [ szz - nu (sxx + syy) ] / E + alpha dT,        cioe'        szz = nu (sxx + syy) - E alpha dT.
-// La formula "da lastra sottile" (szz = 0) qui e' SBAGLIATA, e i test lo mostrano con dei numeri.
+// WHY sigma_zz IS NEEDED. The plate is in plane strain: it does not elongate in z (epsilon_zz = 0). But "does not elongate"
+// does not mean "no stress in z": the body is restrained, and the stress in z is what restrains it. Hooke's
+// law in z, with alpha dT the thermal expansion that would like to occur, says (nu = Poisson's ratio)
+//     0 = epsilon_zz = [ szz - nu (sxx + syy) ] / E + alpha dT,        i.e.        szz = nu (sxx + syy) - E alpha dT.
+// The "thin plate" formula (szz = 0) is WRONG here, and the tests show it with numbers.
 //
-// TRE FATTI CHE I TEST USANO (con E = 100, nu = 1/4, alpha = 1/100 si ha E alpha = 1).
-//   1. Una lastra libera e scaldata in modo uniforme non ha tensioni nel piano (ESEMPIO 216), ma ha szz = -E alpha dT:
-//      vorrebbe dilatarsi anche in z e non puo'. La sua von Mises e' E alpha dT, non 0.
-//   2. Una lastra incastrata e scaldata in modo uniforme ha sxx = syy = -2 dT (ESEMPIO 218) e, con la formula di szz,
-//      anche szz = 0.25 (-4 dT) - dT = -2 dT: tre tensioni uguali, una compressione uguale in tutte le direzioni. La
-//      von Mises e' 0, anche se le tensioni nel piano sono grandi.
-//   3. A meta' di una striscia a rulli lunga la lastra non si deforma in x e in z (epsilon_xx = epsilon_zz = 0), e da'
-//      szz = sxx in ogni triangolo: la von Mises e' |sxx - syy|, e vale 40 nei numeri a mano (ESEMPIO 221), cioe' la
-//      formula del libro E alpha dT / (1 - nu) con dT = 30 (ESEMPIO 236). Nella lastra d'acciaio e' il numero che
-//      dava la media di sxx nell'ESEMPIO 223 (ESEMPIO 237).
+// THREE FACTS THAT THE TESTS USE (with E = 100, nu = 1/4, alpha = 1/100 one has E alpha = 1).
+//   1. A free plate heated uniformly has no in-plane stresses (EXAMPLE 216), but it has szz = -E alpha dT:
+//      it would like to expand in z too and cannot. Its von Mises is E alpha dT, not 0.
+//   2. A clamped plate heated uniformly has sxx = syy = -2 dT (EXAMPLE 218) and, with the formula for szz,
+//      also szz = 0.25 (-4 dT) - dT = -2 dT: three equal stresses, a compression equal in all directions. The
+//      von Mises is 0, even though the in-plane stresses are large.
+//   3. In the middle of a long roller strip the plate does not deform in x and in z (epsilon_xx = epsilon_zz = 0), and
+//      it gives szz = sxx in every triangle: the von Mises is |sxx - syy|, and it is 40 in the hand numbers (EXAMPLE 221),
+//      i.e. the textbook formula E alpha dT / (1 - nu) with dT = 30 (EXAMPLE 236). In the steel plate it is the number that
+//      the mean of sxx gave in EXAMPLE 223 (EXAMPLE 237).
 //
-// Cosa devono fare le due funzioni, ed e' quello che i test controllano:
-//   - von_mises_2d: gli stati semplici (ESEMPIO 228), un esempio a mano con tutte le componenti (229), lo stato
-//     idrostatico (230), cosa non cambia (231 e 232);
-//   - von_mises_field_2d: ogni triangolo usa le sue tensioni e i suoi tre nodi (233), la lastra libera (234), quella
-//     incastrata (235), la striscia (236), la lastra d'acciaio (237), le leggi di scala (238) e i dati sbagliati (239);
-//   - tutte e due: un NaN nei dati resta un NaN e non diventa un numero (240).
+// What the two functions must do, and it is what the tests check:
+//   - von_mises_2d: the simple states (EXAMPLE 228), a hand example with all the components (229), the
+//     hydrostatic state (230), what does not change (231 and 232);
+//   - von_mises_field_2d: every triangle uses its own stresses and its three nodes (233), the free plate (234), the
+//     clamped one (235), the strip (236), the steel plate (237), the scaling laws (238) and the wrong data (239);
+//   - both: a NaN in the data stays a NaN and does not become a number (240).
 
 namespace {
 
 const double kPi = 3.14159265358979323846;
 
-// Numeri comodi per i conti a mano: E = 100, nu = 1/4, alpha = 1/100, T_ref = 20 (E alpha = 1, D = [[120, 40, 0],
+// Convenient numbers for hand computation: E = 100, nu = 1/4, alpha = 1/100, T_ref = 20 (E alpha = 1, D = [[120, 40, 0],
 // [40, 120, 0], [0, 0, 40]]).
 void use_hand_material(ThermoMechanicalProblem2D& problem) {
     problem.E = 100.0;
@@ -62,10 +62,10 @@ void use_hand_material(ThermoMechanicalProblem2D& problem) {
     problem.T_ref = 20.0;
 }
 
-// La lastra a rulli di nx x ny celle, rectangle_mesh(length, height, nx, ny), senza carico di calore (f = 0): le due
-// facce (y = 0 e y = H) restano a t_ref, la temperatura iniziale e' t_ref + amplitude sin(pi j / ny) nella riga j di
-// nodi, u = 0 nei nodi dei due lati x = 0 e x = L e v = 0 nel nodo 0. Il materiale, i numeri del calore e il tempo li
-// sceglie chi chiama (e' la stessa lastra dei test di Thermoelastic2D).
+// The roller plate of nx x ny cells, rectangle_mesh(length, height, nx, ny), with no heat load (f = 0): the two
+// faces (y = 0 and y = H) stay at t_ref, the initial temperature is t_ref + amplitude sin(pi j / ny) in row j of
+// nodes, u = 0 at the nodes of the two sides x = 0 and x = L and v = 0 at node 0. The material, the heat numbers and
+// the time are chosen by the caller (it is the same plate as in the Thermoelastic2D tests).
 ThermoMechanicalProblem2D roller_slab_problem(std::size_t nx, std::size_t ny, double t_ref, double amplitude) {
     const std::size_t n = (nx + 1) * (ny + 1);
     ThermoMechanicalProblem2D problem;
@@ -94,7 +94,7 @@ ThermoMechanicalProblem2D roller_slab_problem(std::size_t nx, std::size_t ny, do
     return problem;
 }
 
-// Il problema "generale": una mesh irregolare e tutti i numeri diversi uno dall'altro (come negli ESEMPI 214 e 224).
+// The "general" problem: an irregular mesh and all the numbers different from one another (as in EXAMPLES 214 and 224).
 Mesh2D general_mesh() {
     return Mesh2D({0.0, 4.0, 3.0, -1.0, 1.0}, {0.0, 0.0, 3.0, 2.0, 0.7},
                   {{0, 1, 4}, {1, 2, 4}, {2, 3, 4}, {3, 0, 4}});
@@ -121,13 +121,13 @@ ThermoMechanicalProblem2D general_problem(const Mesh2D& mesh) {
     return problem;
 }
 
-// La von Mises di tutti i triangoli di uno stato della catena: con il materiale e la T_ref del problema che lo ha dato.
+// The von Mises of all the triangles of a state of the chain, with the material and T_ref of the problem that gave it.
 std::vector<double> von_mises_of(const Mesh2D& mesh, const ThermoMechanicalProblem2D& problem,
                                  const ThermoMechanicalState2D& state) {
     return von_mises_field_2d(mesh, state.sigma, problem.E, problem.nu, problem.alpha, state.T, problem.T_ref);
 }
 
-// Il valore assoluto piu' grande di un vettore, e delle tensioni (tutte le componenti di tutti i triangoli).
+// The largest absolute value of a vector, and of the stresses (all the components of all the triangles).
 double max_abs(const std::vector<double>& values) {
     double largest = 0.0;
     for (double value : values) {
@@ -146,24 +146,24 @@ double max_abs(const std::vector<Vector3>& stresses) {
     return largest;
 }
 
-// Tutti i numeri di un vettore uguali a want, a meno di una tolleranza assoluta.
+// All the numbers of a vector equal to want, up to an absolute tolerance.
 void expect_all_near(const std::vector<double>& got, double want, double tolerance, const std::string& label) {
     for (std::size_t i = 0; i < got.size(); ++i) {
-        EXPECT_NEAR(got[i], want, tolerance) << label << ", triangolo " << i;
+        EXPECT_NEAR(got[i], want, tolerance) << label << ", triangle " << i;
     }
 }
 
-// Due vettori uguali a meno di una tolleranza assoluta.
+// Two vectors equal up to an absolute tolerance.
 void expect_vectors_near(const std::vector<double>& got, const std::vector<double>& want, double tolerance,
                          const std::string& label) {
     ASSERT_EQ(got.size(), want.size()) << label;
     for (std::size_t i = 0; i < got.size(); ++i) {
-        EXPECT_NEAR(got[i], want[i], tolerance) << label << ", triangolo " << i;
+        EXPECT_NEAR(got[i], want[i], tolerance) << label << ", triangle " << i;
     }
 }
 
-// Il problema generale con tutto il "calore" (lo scarto da T_ref della temperatura iniziale e delle temperature
-// imposte, e il carico) moltiplicato per factor.
+// The general problem with all the "heat" (the deviation from T_ref of the initial temperature and of the imposed
+// temperatures, and the load) multiplied by factor.
 ThermoMechanicalProblem2D with_heat_times(const ThermoMechanicalProblem2D& base, double factor) {
     ThermoMechanicalProblem2D hot = base;
     for (double& value : hot.T0) {
@@ -178,7 +178,7 @@ ThermoMechanicalProblem2D with_heat_times(const ThermoMechanicalProblem2D& base,
     return hot;
 }
 
-// La von Mises di tutti e 4 gli stati del problema generale cambiato, uguale a quella del problema base per factor.
+// The von Mises of all 4 states of the modified general problem, equal to that of the base problem times factor.
 void expect_von_mises_scaled(const Mesh2D& mesh, const ThermoMechanicalProblem2D& changed,
                              const std::vector<std::vector<double>>& base_vm, double factor, const std::string& what) {
     const std::vector<ThermoMechanicalState2D> states = solve_thermomechanical_2d(mesh, changed);
@@ -189,22 +189,22 @@ void expect_von_mises_scaled(const Mesh2D& mesh, const ThermoMechanicalProblem2D
             value *= factor;
         }
         expect_vectors_near(von_mises_of(mesh, changed, states[s]), want, 1e-9 * max_abs(base_vm[s]) + 1e-12,
-                            what + ", stato " + std::to_string(s));
+                            what + ", state " + std::to_string(s));
     }
 }
 
 }  // namespace
 
-// ESEMPIO 228. Gli stati semplici danno il numero che ci si aspetta. Con sigma = (xx, yy, xy) e la tensione fuori dal
-// piano szz:
-//   - trazione sola, (100, 0, 0) con szz = 0: le tre differenze valgono 100, 0 e -100, quindi 1/2 (100^2 + 0 + 100^2) =
-//     100^2 e la von Mises e' 100: per la trazione semplice e' la tensione stessa. Lo stesso per (0, -40, 0): 40 (il
-//     segno non conta);
-//   - la sola szz = 25 (xx = yy = xy = 0): le differenze valgono 0, -25 e 25, quindi 25;
-//   - biassiale uguale nel piano, (50, 50, 0) con szz = 0: le differenze valgono 0, 50 e -50, quindi 1/2 (0 + 2500 +
-//     2500) = 2500 e la von Mises e' 50;
-//   - taglio puro, (0, 0, 10): 3 x 10^2 = 300, quindi 10 sqrt(3) = 17.32. Il taglio "pesa" sqrt(3) volte una trazione;
-//   - tutto 0: 0.
+// EXAMPLE 228. The simple states give the number one expects. With sigma = (xx, yy, xy) and the out-of-plane
+// stress szz:
+//   - tension only, (100, 0, 0) with szz = 0: the three differences are 100, 0 and -100, so 1/2 (100^2 + 0 + 100^2) =
+//     100^2 and the von Mises is 100: for simple tension it is the stress itself. The same for (0, -40, 0): 40 (the
+//     sign does not matter);
+//   - szz = 25 alone (xx = yy = xy = 0): the differences are 0, -25 and 25, so 25;
+//   - equal biaxial in the plane, (50, 50, 0) with szz = 0: the differences are 0, 50 and -50, so 1/2 (0 + 2500 +
+//     2500) = 2500 and the von Mises is 50;
+//   - pure shear, (0, 0, 10): 3 x 10^2 = 300, so 10 sqrt(3) = 17.32. The shear "weighs" sqrt(3) times a tension;
+//   - all 0: 0.
 TEST(VonMises2d, TheSimpleStatesGiveTheNumberOneExpects) {
     EXPECT_DOUBLE_EQ(von_mises_2d({100.0, 0.0, 0.0}, 0.0), 100.0);
     EXPECT_DOUBLE_EQ(von_mises_2d({0.0, -40.0, 0.0}, 0.0), 40.0);
@@ -214,24 +214,24 @@ TEST(VonMises2d, TheSimpleStatesGiveTheNumberOneExpects) {
     EXPECT_EQ(von_mises_2d({0.0, 0.0, 0.0}, 0.0), 0.0);
 }
 
-// ESEMPIO 229. Un esempio a mano con tutte le componenti: sigma = (5, 2, 3) e szz = 2. Le differenze fra le normali
-// sono 5 - 2 = 3, 2 - 2 = 0 e 2 - 5 = -3, quindi
+// EXAMPLE 229. A hand example with all the components: sigma = (5, 2, 3) and szz = 2. The differences between the normals
+// are 5 - 2 = 3, 2 - 2 = 0 and 2 - 5 = -3, so
 //     1/2 (3^2 + 0^2 + (-3)^2) + 3 x 3^2 = 9 + 27 = 36,        sigma_vm = 6.
-// Un secondo, (4, 1, 1) con szz = 0: differenze 3, 1 e -4, quindi 1/2 (9 + 1 + 16) + 3 x 1 = 13 + 3 = 16 e la von
-// Mises e' 4. E lo stato del primo esempio con szz = 0 invece di 2 (differenze 3, 2 e -5: 1/2 (9 + 4 + 25) + 27 = 46)
-// da' sqrt(46) = 6.78, un altro numero: szz conta.
+// Another, (4, 1, 1) with szz = 0: differences 3, 1 and -4, so 1/2 (9 + 1 + 16) + 3 x 1 = 13 + 3 = 16 and the von Mises
+// is 4. And the first example's state with szz = 0 instead of 2 (differences 3, 2 and -5: 1/2 (9 + 4 + 25) + 27 = 46)
+// gives sqrt(46) = 6.78, another number: szz matters.
 TEST(VonMises2d, AHandExampleWithAllTheComponents) {
     EXPECT_DOUBLE_EQ(von_mises_2d({5.0, 2.0, 3.0}, 2.0), 6.0);
     EXPECT_DOUBLE_EQ(von_mises_2d({4.0, 1.0, 1.0}, 0.0), 4.0);
     EXPECT_NEAR(von_mises_2d({5.0, 2.0, 3.0}, 0.0), std::sqrt(46.0), 1e-12);
 }
 
-// ESEMPIO 230. Uno stato idrostatico non ha von Mises. Con le tre normali uguali, (p, p, 0) e szz = p, le tre
-// differenze sono 0 e la von Mises e' 0 ESATTAMENTE (non "circa": e' una somma di quadrati di zeri). E' proprio quello
-// che la forma sviluppata della formula, sxx^2 + syy^2 + szz^2 - sxx syy - syy szz - szz sxx + 3 sxy^2, non garantisce:
-// per p = 0.7, 1.3, 3.3, 9.1 o -1234.5678 gli arrotondamenti danno un numero NEGATIVO piccolissimo (-1e-16, -4e-16,
-// -4e-15, -3e-14, -5e-10) e la sua radice e' NaN. Con szz = 0 invece lo stesso (p, p, 0) non e' idrostatico (le
-// differenze sono 0, p e -p) e vale |p|.
+// EXAMPLE 230. A hydrostatic state has no von Mises stress. With the three normals equal, (p, p, 0) and szz = p, the three
+// differences are 0 and the von Mises is EXACTLY 0 (not "about": it is a sum of squares of zeros). This is just what
+// the expanded form of the formula, sxx^2 + syy^2 + szz^2 - sxx syy - syy szz - szz sxx + 3 sxy^2, does not guarantee:
+// for p = 0.7, 1.3, 3.3, 9.1 or -1234.5678 the rounding gives a tiny NEGATIVE number (-1e-16, -4e-16,
+// -4e-15, -3e-14, -5e-10) and its square root is NaN. With szz = 0 instead, the same (p, p, 0) is not hydrostatic (the
+// differences are 0, p and -p) and it equals |p|.
 TEST(VonMises2d, AHydrostaticStateHasNoVonMisesStress) {
     for (double p : {0.7, 1.3, 3.3, 9.1, -1234.5678, -7.0, 5.5}) {
         EXPECT_EQ(von_mises_2d({p, p, 0.0}, p), 0.0) << "p = " << p;
@@ -239,17 +239,17 @@ TEST(VonMises2d, AHydrostaticStateHasNoVonMisesStress) {
     }
 }
 
-// ESEMPIO 231. Cosa non cambia la von Mises. Si parte dall'esempio a mano, (5, 2, 3) con szz = 2, che vale 6:
-//   - la stessa pressione p aggiunta a sxx, syy e szz (le differenze restano 3, 0, -3): 6, per p = -10, 0.5, 100, 1e6
-//     e 0.1;
-//   - il segno cambiato a tutte le tensioni (le differenze cambiano segno, i quadrati no): 6;
-//   - sxx e syy scambiate, o il taglio cambiato di segno: 6;
-//   - tutte le tensioni moltiplicate per un numero f: |f| x 6, cioe' 3, 18 e 12 per f = 0.5, 3 e -2.
+// EXAMPLE 231. What leaves the von Mises unchanged. Start from the hand example, (5, 2, 3) with szz = 2, which gives 6:
+//   - the same pressure p added to sxx, syy and szz (the differences stay 3, 0, -3): 6, for p = -10, 0.5, 100, 1e6
+//     and 0.1;
+//   - the sign changed on all the stresses (the differences change sign, the squares do not): 6;
+//   - sxx and syy swapped, or the shear with its sign changed: 6;
+//   - all the stresses multiplied by a number f: |f| x 6, i.e. 3, 18 and 12 for f = 0.5, 3 and -2.
 TEST(VonMises2d, OnlyTheDistortionCounts) {
     EXPECT_DOUBLE_EQ(von_mises_2d({5.0, 2.0, 3.0}, 2.0), 6.0);
 
     for (double p : {-10.0, 0.5, 100.0, 1.0e6, 0.1}) {
-        EXPECT_NEAR(von_mises_2d({5.0 + p, 2.0 + p, 3.0}, 2.0 + p), 6.0, 1e-9) << "pressione " << p;
+        EXPECT_NEAR(von_mises_2d({5.0 + p, 2.0 + p, 3.0}, 2.0 + p), 6.0, 1e-9) << "pressure " << p;
     }
     EXPECT_NEAR(von_mises_2d({-5.0, -2.0, -3.0}, -2.0), 6.0, 1e-12);
     EXPECT_NEAR(von_mises_2d({2.0, 5.0, 3.0}, 2.0), 6.0, 1e-12);
@@ -259,14 +259,14 @@ TEST(VonMises2d, OnlyTheDistortionCounts) {
     }
 }
 
-// ESEMPIO 232. La von Mises non dipende dagli assi scelti nel piano. Ruotando x e y di un angolo a (c = cos a, s = sin
-// a) le tensioni nel piano diventano
+// EXAMPLE 232. The von Mises does not depend on the axes chosen in the plane. Rotating x and y by an angle a
+// (c = cos a, s = sin a) the in-plane stresses become
 //     sxx' = c^2 sxx + s^2 syy + 2 c s sxy,      syy' = s^2 sxx + c^2 syy - 2 c s sxy,
 //     sxy' = (syy - sxx) c s + (c^2 - s^2) sxy,
-// mentre szz non cambia. Lo stato e' lo stesso, visto da assi diversi, quindi la von Mises deve dare lo stesso 6 per
-// l'esempio a mano (5, 2, 3) con szz = 2. A 90 gradi sxx' = 2, syy' = 5 e sxy' = -3; a 30 gradi i numeri sono tutti
-// diversi (6.85, 0.15 e 0.20) e la von Mises e' ancora 6. E' la prova del 3 davanti a sxy^2: con un altro coefficiente
-// ruotando di 45 gradi (dove taglio e differenza fra le normali si mescolano) il risultato cambierebbe.
+// while szz does not change. The state is the same, seen from different axes, so the von Mises must give the same 6 for
+// the hand example (5, 2, 3) with szz = 2. At 90 degrees sxx' = 2, syy' = 5 and sxy' = -3; at 30 degrees the numbers
+// are all different (6.85, 0.15 and 0.20) and the von Mises is still 6. This checks the 3 in front of sxy^2: with any
+// other coefficient, rotating by 45 degrees (where shear and normal differences mix) the result would change.
 TEST(VonMises2d, TheAxesOfThePlaneDoNotMatter) {
     const double sxx = 5.0;
     const double syy = 2.0;
@@ -279,23 +279,23 @@ TEST(VonMises2d, TheAxesOfThePlaneDoNotMatter) {
         const Vector3 rotated = {c * c * sxx + s * s * syy + 2.0 * c * s * sxy,
                                  s * s * sxx + c * c * syy - 2.0 * c * s * sxy,
                                  (syy - sxx) * c * s + (c * c - s * s) * sxy};
-        EXPECT_NEAR(von_mises_2d(rotated, szz), 6.0, 1e-12) << degrees << " gradi";
+        EXPECT_NEAR(von_mises_2d(rotated, szz), 6.0, 1e-12) << degrees << " degrees";
         if (degrees == 30.0) {
-            EXPECT_GT(std::fabs(rotated[0] - sxx), 1.0) << "a 30 gradi le tensioni devono essere cambiate";
-            EXPECT_GT(std::fabs(rotated[2] - sxy), 1.0) << "a 30 gradi le tensioni devono essere cambiate";
+            EXPECT_GT(std::fabs(rotated[0] - sxx), 1.0) << "at 30 degrees the stresses must have changed";
+            EXPECT_GT(std::fabs(rotated[2] - sxy), 1.0) << "at 30 degrees the stresses must have changed";
         }
     }
 }
 
-// ESEMPIO 233. Ogni triangolo usa le sue tensioni e i suoi tre nodi. Il quadrato unitario con i triangoli {0, 1, 2} e
-// {0, 2, 3}, E = 100, nu = 1/4, alpha = 1/100 (E alpha = 1), T_ref = 20, e temperature tutte diverse nei quattro nodi,
+// EXAMPLE 233. Every triangle uses its own stresses and its three nodes. The unit square with the triangles {0, 1, 2} and
+// {0, 2, 3}, E = 100, nu = 1/4, alpha = 1/100 (E alpha = 1), T_ref = 20, and all different temperatures at the four nodes,
 // T = (19.5, 19.75, 20, 24.25).
-//   - Triangolo 0, nodi 0, 1, 2: dT = (19.5 + 19.75 + 20) / 3 - 20 = 19.75 - 20 = -1/4. Con sigma = (5, 2, 3):
-//     szz = nu (5 + 2) - E alpha dT = 7/4 + 1/4 = 2, e' l'ESEMPIO 229 e la von Mises e' 6.
-//   - Triangolo 1, nodi 0, 2, 3: dT = (19.5 + 20 + 24.25) / 3 - 20 = 21.25 - 20 = 5/4. Con sigma = (4, 1, 1):
-//     szz = nu (4 + 1) - E alpha dT = 5/4 - 5/4 = 0, e la von Mises e' 4.
-// Chi usasse la temperatura di un nodo solo, la media di due, la T_ref sbagliata o i nodi di un altro triangolo
-// troverebbe un szz diverso e un altro numero.
+//   - Triangle 0, nodes 0, 1, 2: dT = (19.5 + 19.75 + 20) / 3 - 20 = 19.75 - 20 = -1/4. With sigma = (5, 2, 3):
+//     szz = nu (5 + 2) - E alpha dT = 7/4 + 1/4 = 2, it is EXAMPLE 229 and the von Mises is 6.
+//   - Triangle 1, nodes 0, 2, 3: dT = (19.5 + 20 + 24.25) / 3 - 20 = 21.25 - 20 = 5/4. With sigma = (4, 1, 1):
+//     szz = nu (4 + 1) - E alpha dT = 5/4 - 5/4 = 0, and the von Mises is 4.
+// Anyone who used the temperature of a single node, the mean of two, the wrong T_ref or the nodes of another triangle
+// would find a different szz and another number.
 TEST(VonMises2d, TheFieldUsesTheStressAndTheNodesOfEachTriangle) {
     const Mesh2D mesh({0.0, 1.0, 1.0, 0.0}, {0.0, 0.0, 1.0, 1.0}, {{0, 1, 2}, {0, 2, 3}});
     const std::vector<Vector3> sigma = {{5.0, 2.0, 3.0}, {4.0, 1.0, 1.0}};
@@ -307,12 +307,12 @@ TEST(VonMises2d, TheFieldUsesTheStressAndTheNodesOfEachTriangle) {
     EXPECT_NEAR(vm[1], 4.0, 1e-12);
 }
 
-// ESEMPIO 234. La lastra libera che si scalda in modo uniforme: von Mises = E alpha dT. E' la lastra dell'ESEMPIO 216
-// (3 x 2 celle di [0, 2] x [0, 1], isolata, T0 = 25, T_ref = 20, un grado in piu' a ogni passo) con theta = 1 e
-// 1/2. Nel piano non ci sono tensioni (si controlla), quindi sxx = syy = sxy = 0 e
+// EXAMPLE 234. The free plate that heats up uniformly: von Mises = E alpha dT. It is the plate of EXAMPLE 216
+// (3 x 2 cells of [0, 2] x [0, 1], insulated, T0 = 25, T_ref = 20, one degree more at every step) with theta = 1 and
+// 1/2. In the plane there are no stresses (this is checked), so sxx = syy = sxy = 0 and
 //     szz = nu x 0 - E alpha dT = -dT,        sigma_vm = sqrt(1/2 (0 + dT^2 + dT^2)) = dT = 5 + p
-// dopo p passi, in ogni triangolo: 5, 6, 7, 8, 9. Chi prendesse szz = 0 (la formula "da lastra sottile") troverebbe 0:
-// una lastra che si scalda di 9 gradi e non e' sollecitata in nessun modo.
+// after p steps, in every triangle: 5, 6, 7, 8, 9. Anyone who took szz = 0 (the "thin plate" formula) would find 0:
+// a plate that heats up by 9 degrees and is not stressed in any way.
 TEST(VonMises2d, AFreePlateThatIsHeatedUniformlyIsStressedAcrossThePlane) {
     const Mesh2D mesh = rectangle_mesh(2.0, 1.0, 3, 2);
     for (double theta : {1.0, 0.5}) {
@@ -331,20 +331,20 @@ TEST(VonMises2d, AFreePlateThatIsHeatedUniformlyIsStressedAcrossThePlane) {
         const std::vector<ThermoMechanicalState2D> states = solve_thermomechanical_2d(mesh, problem);
         ASSERT_EQ(states.size(), 5u);
         for (std::size_t p = 0; p < states.size(); ++p) {
-            const std::string label = "theta = " + std::to_string(theta) + ", passo " + std::to_string(p);
-            EXPECT_LT(max_abs(states[p].sigma), 1e-8) << label << ": nel piano non ci sono tensioni";
+            const std::string label = "theta = " + std::to_string(theta) + ", step " + std::to_string(p);
+            EXPECT_LT(max_abs(states[p].sigma), 1e-8) << label << ": there are no in-plane stresses";
             expect_all_near(von_mises_of(mesh, problem, states[p]), 5.0 + static_cast<double>(p), 1e-7, label);
         }
     }
 }
 
-// ESEMPIO 235. La lastra incastrata che si scalda e' compressa in modo idrostatico: von Mises = 0. E' la lastra
-// dell'ESEMPIO 218 (4 x 4 celle di [0, 2] x [0, 1], tutto il bordo bloccato, isolata, T0 = T_ref = 20, un grado in piu'
-// a ogni passo) con theta = 1 e 1/2. Le tensioni nel piano sono grandi, sxx = syy = -2 dT, ma szz = nu (sxx + syy) -
-// E alpha dT = 0.25 (-4 dT) - dT = -2 dT: le tre tensioni normali sono uguali e il taglio e' 0, la lastra e' compressa
-// allo stesso modo in tutte le direzioni e la von Mises e' 0 (a meno degli errori del gradiente coniugato). Si
-// controlla che le tensioni nel piano ci siano davvero (dal passo 1) e che la formula "da lastra sottile" (szz = 0)
-// darebbe 2 dT: la lastra sembrerebbe a rischio quando non lo e'.
+// EXAMPLE 235. The clamped plate that heats up is compressed hydrostatically: von Mises = 0. It is the plate
+// of EXAMPLE 218 (4 x 4 cells of [0, 2] x [0, 1], the whole boundary fixed, insulated, T0 = T_ref = 20, one degree more
+// at every step) with theta = 1 and 1/2. The in-plane stresses are large, sxx = syy = -2 dT, but szz = nu (sxx + syy) -
+// E alpha dT = 0.25 (-4 dT) - dT = -2 dT: the three normal stresses are equal and the shear is 0, the plate is compressed
+// in the same way in all directions and the von Mises is 0 (up to the errors of the conjugate gradient). It is
+// checked that the in-plane stresses are really there (from step 1) and that the "thin plate" formula (szz = 0)
+// would give 2 dT: the plate would seem to be at risk when it is not.
 TEST(VonMises2d, AClampedPlateIsPressedFromAllSidesSoVonMisesIsZero) {
     const Mesh2D mesh = rectangle_mesh(2.0, 1.0, 4, 4);
     for (double theta : {1.0, 0.5}) {
@@ -367,30 +367,30 @@ TEST(VonMises2d, AClampedPlateIsPressedFromAllSidesSoVonMisesIsZero) {
         const std::vector<ThermoMechanicalState2D> states = solve_thermomechanical_2d(mesh, problem);
         ASSERT_EQ(states.size(), 5u);
         for (std::size_t p = 0; p < states.size(); ++p) {
-            const std::string label = "theta = " + std::to_string(theta) + ", passo " + std::to_string(p);
+            const std::string label = "theta = " + std::to_string(theta) + ", step " + std::to_string(p);
             const double dT = static_cast<double>(p);
             expect_all_near(von_mises_of(mesh, problem, states[p]), 0.0, 1e-7, label);
             if (p > 0) {
-                EXPECT_GT(max_abs(states[p].sigma), 1.9 * dT) << label << ": tensioni nel piano da trovare";
+                EXPECT_GT(max_abs(states[p].sigma), 1.9 * dT) << label << ": in-plane stresses to be found";
             }
             for (const Vector3& s : states[p].sigma) {
-                EXPECT_NEAR(von_mises_2d(s, 0.0), 2.0 * dT, 1e-7) << label << ": la formula con szz = 0";
+                EXPECT_NEAR(von_mises_2d(s, 0.0), 2.0 * dT, 1e-7) << label << ": the formula with szz = 0";
             }
         }
     }
 }
 
-// ESEMPIO 236. A meta' di una striscia lunga ogni triangolo ha la stessa von Mises. La striscia dell'ESEMPIO 221 (24
-// colonne, celle quadrate di lato 1/2, Eulero all'indietro, un passo, E = 100, nu = 1/4, alpha = 1/100, righe di nodi
-// a dT = 0, 60, 0). Nelle tre colonne di mezzo i quattro triangoli hanno le sigma dell'ESEMPIO 221 e, per quelli della
-// cella in basso (riga 0), con sigma_zz = nu (sxx + syy) - E alpha dT_X:
-//   - triangolo in basso, sigma = (-20, +20), dT_X = 20: szz = 0.25 x 0 - 20 = -20 (uguale a sxx).
+// EXAMPLE 236. In the middle of a long strip every triangle has the same von Mises. The strip of EXAMPLE 221 (24
+// columns, square cells of side 1/2, backward Euler, one step, E = 100, nu = 1/4, alpha = 1/100, rows of nodes
+// at dT = 0, 60, 0). In the three middle columns the four triangles have the sigmas of EXAMPLE 221 and, for those of the
+// bottom cell (row 0), with sigma_zz = nu (sxx + syy) - E alpha dT_X:
+//   - bottom triangle, sigma = (-20, +20), dT_X = 20: szz = 0.25 x 0 - 20 = -20 (equal to sxx).
 //     sigma_vm = sqrt(1/2 [(-20 - 20)^2 + (20 + 20)^2 + (-20 + 20)^2]) = sqrt(1/2 (1600 + 1600)) = 40;
-//   - triangolo in alto, sigma = (-60, -20), dT_X = 40: szz = 0.25 x (-80) - 40 = -60 (uguale a sxx).
+//   - top triangle, sigma = (-60, -20), dT_X = 40: szz = 0.25 x (-80) - 40 = -60 (equal to sxx).
 //     sigma_vm = sqrt(1/2 [(-60 + 20)^2 + (-20 + 60)^2 + 0]) = 40.
-// La riga 1 e' lo specchio: 40 in tutti e quattro. E' la formula del libro, E alpha dT / (1 - nu) = 30 / 0.75 = 40 con
-// dT = 30 (la media di 0 e 60 della cella). Dopo un passo (g = 2/3) tutto e' moltiplicato per 2/3. Senza szz (con
-// szz = 0) verrebbe sqrt(1200) = 34.6 nei triangoli in basso e sqrt(2800) = 52.9 in quelli in alto.
+// Row 1 is the mirror image: 40 in all four. It is the textbook formula, E alpha dT / (1 - nu) = 30 / 0.75 = 40 with
+// dT = 30 (the mean of 0 and 60 of the cell). After one step (g = 2/3) everything is multiplied by 2/3. Without szz (with
+// szz = 0) one would get sqrt(1200) = 34.6 in the bottom triangles and sqrt(2800) = 52.9 in the top ones.
 TEST(VonMises2d, InTheMiddleOfALongStripEveryTriangleHasTheSameVonMises) {
     const std::size_t nx = 24;
     const Mesh2D mesh = rectangle_mesh(0.5 * static_cast<double>(nx), 1.0, nx, 2);
@@ -412,27 +412,27 @@ TEST(VonMises2d, InTheMiddleOfALongStripEveryTriangleHasTheSameVonMises) {
             for (std::size_t row = 0; row < 2; ++row) {
                 for (std::size_t half = 0; half < 2; ++half) {
                     EXPECT_NEAR(vm[2 * (row * nx + i) + half], factor * 40.0, 1e-3)
-                        << "passo " << p << ", cella (" << i << ", " << row << "), triangolo " << half;
+                        << "step " << p << ", cell (" << i << ", " << row << "), triangle " << half;
                 }
             }
         }
     }
 }
 
-// ESEMPIO 237. Una lastra d'acciaio che si raffredda ha la von Mises "del libro". La lastra dell'ESEMPIO 223 (spessa
-// H = 0.1 m e lunga 0.4 m, E = 210 GPa, nu = 0.3, alpha = 12e-6, rho_c = 7850 x 470, k = 45, le facce a T_ref =
-// 293.15 K, partenza T_ref + 100 sin(pi y / H), 8 x 32 celle, passi di 5 s con Crank-Nicolson, stati a 0, 50 e 100 s).
-// A meta' lunghezza, con syy che in media e' 0 (equilibrio verticale) e szz = sxx, la von Mises di ogni triangolo di
-// una cella e' |sxx| della media dell'ESEMPIO 223, cioe'
-//     sigma_vm = E alpha dT / (1 - nu),        dT = media dello scarto di T delle due righe di nodi della cella
-// (100 K di scarto danno 360 MPa). Si controlla:
-//   - tutti i numeri della lastra sono finiti e non negativi (una von Mises e' una radice di una somma di quadrati);
-//   - i due triangoli di ogni cella di mezzo hanno la formula con lo scarto di T calcolato a meno di 1e-4 volte
-//     360 MPa (l'effetto dei rulli a meta' lunghezza e' sotto 1e-5);
-//   - con lo scarto "continuo", 100 sin(pi y / H) e^(-t / tau) preso a meta' altezza della cella (tau = 83 s), la
-//     differenza e' l'errore del metodo (1.9% la media di due nodi, 1.3% il decadimento della mesh): sotto il 5% di
+// EXAMPLE 237. A steel plate that cools has the "textbook" von Mises. The plate of EXAMPLE 223 (H = 0.1 m thick
+// and 0.4 m long, E = 210 GPa, nu = 0.3, alpha = 12e-6, rho_c = 7850 x 470, k = 45, the faces at T_ref = 293.15 K,
+// starting from T_ref + 100 sin(pi y / H), 8 x 32 cells, steps of 5 s with Crank-Nicolson, states at 0, 50 and 100 s).
+// At mid-length, with syy averaging 0 (vertical equilibrium) and szz = sxx, the von Mises of every triangle of
+// a cell is the |sxx| of the mean in EXAMPLE 223, i.e.
+//     sigma_vm = E alpha dT / (1 - nu),        dT = mean of the T deviation of the two rows of nodes of the cell
+// (100 K of deviation give 360 MPa). The test checks:
+//   - all the numbers of the plate are finite and non-negative (a von Mises is the root of a sum of squares);
+//   - the two triangles of every middle cell have the formula with the computed T deviation to within 1e-4 times
+//     360 MPa (the effect of the rollers at mid-length is below 1e-5);
+//   - with the "continuous" deviation, 100 sin(pi y / H) e^(-t / tau) taken at mid-height of the cell (tau = 83 s), the
+//     difference is the error of the method (1.9% the mean of two nodes, 1.3% the decay of the mesh): below 5% of
 //     360 MPa;
-//   - a meta' altezza, al tempo 0, la von Mises e' fra il 95% e il 100% di 360 MPa.
+//   - at mid-height, at time 0, the von Mises is between 95% and 100% of 360 MPa.
 TEST(VonMises2d, ASteelSlabHasTheTextbookVonMises) {
     const std::size_t nx = 32;
     const std::size_t ny = 8;
@@ -464,8 +464,8 @@ TEST(VonMises2d, ASteelSlabHasTheTextbookVonMises) {
         const std::vector<double> vm = von_mises_of(mesh, problem, state);
         ASSERT_EQ(vm.size(), mesh.num_triangles());
         for (std::size_t e = 0; e < vm.size(); ++e) {
-            EXPECT_TRUE(std::isfinite(vm[e])) << "t = " << state.time << ", triangolo " << e;
-            EXPECT_GE(vm[e], 0.0) << "t = " << state.time << ", triangolo " << e;
+            EXPECT_TRUE(std::isfinite(vm[e])) << "t = " << state.time << ", triangle " << e;
+            EXPECT_GE(vm[e], 0.0) << "t = " << state.time << ", triangle " << e;
         }
         for (std::size_t row = 0; row < ny; ++row) {
             const std::size_t cell = row * nx + column;
@@ -476,11 +476,11 @@ TEST(VonMises2d, ASteelSlabHasTheTextbookVonMises) {
             const double continuum = scale * std::sin(kPi * y_middle / height) * std::exp(-state.time / tau);
             for (std::size_t half = 0; half < 2; ++half) {
                 EXPECT_NEAR(vm[2 * cell + half], from_the_formula, 1e-4 * scale)
-                    << "t = " << state.time << ", riga di celle " << row << ", triangolo " << half
-                    << ", formula con la T calcolata";
+                    << "t = " << state.time << ", row of cells " << row << ", triangle " << half
+                    << ", formula with the computed T";
                 EXPECT_NEAR(vm[2 * cell + half], continuum, 0.05 * scale)
-                    << "t = " << state.time << ", riga di celle " << row << ", triangolo " << half
-                    << ", soluzione continua";
+                    << "t = " << state.time << ", row of cells " << row << ", triangle " << half
+                    << ", continuous solution";
             }
         }
     }
@@ -491,16 +491,16 @@ TEST(VonMises2d, ASteelSlabHasTheTextbookVonMises) {
     EXPECT_LT(vm_start[2 * middle_cell], 1.0 * scale);
 }
 
-// ESEMPIO 238. Leggi di scala: la mesh irregolare e i dati dell'ESEMPIO 214 con i vincoli a zero. Nello stato di ogni
-// istante, rispetto ai numeri del problema base:
-//   - E doppio (sigma e E alpha raddoppiano, quindi anche szz): la von Mises e' il doppio;
-//   - alpha doppio (u, sigma e E alpha dT raddoppiano): il doppio;
-//   - il calore doppio (scarto di T iniziale e imposto e carico per 2): il doppio;
-//   - il calore cambiato di segno (fattore -1): la STESSA von Mises. Tutte le tensioni cambiano segno (szz compresa) e
-//     una von Mises e' fatta di differenze al quadrato: un pezzo che si scalda di 10 gradi o si raffredda di 10 e'
-//     sollecitato allo stesso modo. Chi mettesse un valore assoluto nel posto sbagliato, o prendesse la radice di un
-//     numero con segno, lo troverebbe qui;
-//   - T e T_ref aumentate insieme di 100 gradi: la stessa von Mises (dipende solo da T - T_ref).
+// EXAMPLE 238. Scaling laws: the irregular mesh and the data of EXAMPLE 214 with zero constraints. In the state of every
+// instant, with respect to the numbers of the base problem:
+//   - E doubled (sigma and E alpha double, so szz too): the von Mises is doubled;
+//   - alpha doubled (u, sigma and E alpha dT double): doubled;
+//   - the heat doubled (initial and imposed T deviation and load times 2): doubled;
+//   - the heat with its sign changed (factor -1): the SAME von Mises. All the stresses change sign (szz included) and
+//     a von Mises is made of squared differences: a piece that heats up by 10 degrees or cools down by 10 is
+//     stressed in the same way. Anyone who put an absolute value in the wrong place, or took the root of a
+//     signed number, would find it here;
+//   - T and T_ref increased together by 100 degrees: the same von Mises (it depends only on T - T_ref).
 TEST(VonMises2d, VonMisesScalesWithEWithAlphaAndWithTheHeat) {
     const Mesh2D mesh = general_mesh();
     const ThermoMechanicalProblem2D base = general_problem(mesh);
@@ -510,18 +510,18 @@ TEST(VonMises2d, VonMisesScalesWithEWithAlphaAndWithTheHeat) {
     for (const ThermoMechanicalState2D& state : base_states) {
         base_vm.push_back(von_mises_of(mesh, base, state));
     }
-    ASSERT_GT(max_abs(base_vm[3]), 1e-3) << "il test deve avere delle tensioni da confrontare";
+    ASSERT_GT(max_abs(base_vm[3]), 1e-3) << "the test must have some stresses to compare";
 
     ThermoMechanicalProblem2D stiff = base;
     stiff.E = 2.0 * base.E;
-    expect_von_mises_scaled(mesh, stiff, base_vm, 2.0, "E doppio");
+    expect_von_mises_scaled(mesh, stiff, base_vm, 2.0, "E doubled");
 
     ThermoMechanicalProblem2D expanding = base;
     expanding.alpha = 2.0 * base.alpha;
-    expect_von_mises_scaled(mesh, expanding, base_vm, 2.0, "alpha doppio");
+    expect_von_mises_scaled(mesh, expanding, base_vm, 2.0, "alpha doubled");
 
-    expect_von_mises_scaled(mesh, with_heat_times(base, 2.0), base_vm, 2.0, "calore doppio");
-    expect_von_mises_scaled(mesh, with_heat_times(base, -1.0), base_vm, 1.0, "calore cambiato di segno");
+    expect_von_mises_scaled(mesh, with_heat_times(base, 2.0), base_vm, 2.0, "heat doubled");
+    expect_von_mises_scaled(mesh, with_heat_times(base, -1.0), base_vm, 1.0, "heat with the sign changed");
 
     ThermoMechanicalProblem2D shifted = base;
     shifted.T_ref += 100.0;
@@ -534,14 +534,14 @@ TEST(VonMises2d, VonMisesScalesWithEWithAlphaAndWithTheHeat) {
     expect_von_mises_scaled(mesh, shifted, base_vm, 1.0, "T e T_ref + 100");
 }
 
-// ESEMPIO 239. Dati sbagliati: la funzione lancia std::invalid_argument. Il quadrato unitario con due triangoli, due
-// tensioni, quattro temperature, E = 100, nu = 1/4 e alpha = 1/100 (si controlla che i dati siano validi). Si cambia un
-// dato alla volta:
-//   - sigma con 1 o con 3 terne invece di 2 (una per triangolo);
-//   - T con 3 o con 5 numeri invece di 4 (uno per nodo);
-//   - E = 0, E = -5 e E = NaN (serve E > 0, e con un NaN il confronto "E <= 0" non basta: "!(E > 0)" si);
-//   - nu = 1/2, -1, 0.7, -1.5 e NaN (serve -1 < nu < 1/2, estremi esclusi, come per plane_strain_matrix).
-// Gli estremi vicini ma dentro (nu = 0.49 e nu = -0.99) vanno bene.
+// EXAMPLE 239. Wrong data: the function throws std::invalid_argument. The unit square with two triangles, two
+// stresses, four temperatures, E = 100, nu = 1/4 and alpha = 1/100 (it is checked that the data is valid). One
+// datum is changed at a time:
+//   - sigma with 1 or with 3 triplets instead of 2 (one per triangle);
+//   - T with 3 or with 5 numbers instead of 4 (one per node);
+//   - E = 0, E = -5 and E = NaN (E > 0 is needed, and with a NaN the comparison "E <= 0" is not enough: "!(E > 0)" is);
+//   - nu = 1/2, -1, 0.7, -1.5 and NaN (-1 < nu < 1/2 is needed, ends excluded, as for plane_strain_matrix).
+// Values close to the limits but inside (nu = 0.49 and nu = -0.99) are fine.
 TEST(VonMises2d, WrongDataIsReported) {
     const Mesh2D mesh({0.0, 1.0, 1.0, 0.0}, {0.0, 0.0, 1.0, 1.0}, {{0, 1, 2}, {0, 2, 3}});
     const std::vector<Vector3> sigma = {{5.0, 2.0, 3.0}, {4.0, 1.0, 1.0}};
@@ -568,13 +568,13 @@ TEST(VonMises2d, WrongDataIsReported) {
     EXPECT_NO_THROW(von_mises_field_2d(mesh, sigma, 100.0, -0.99, 0.01, T, 20.0));
 }
 
-// ESEMPIO 240. Un NaN nei dati non diventa un numero. Se una tensione e' NaN (per esempio perche' il calcolo prima e'
-// andato male) la von Mises deve essere NaN: un 0, o un altro numero qualunque, sembrerebbe "nessuna sollecitazione" e
-// nasconderebbe il guasto. Vale per ognuna delle quattro tensioni. (Un modo di nasconderlo: proteggere la radice con
-// std::max(0.0, ...) o con "se > 0": con un NaN il confronto da' falso e il risultato diventa 0.) Nel campo, una
-// temperatura NaN in un nodo da' NaN nei triangoli che hanno quel nodo e solo in quelli: nel quadrato unitario con i
-// triangoli {0, 1, 2} e {0, 2, 3} e il nodo 3 a NaN, il triangolo 0 ha la sua von Mises (6, come nell'ESEMPIO 233 con
-// T = (19.5, 19.75, 20)) e il triangolo 1 e' NaN.
+// EXAMPLE 240. A NaN in the data does not become a number. If a stress is NaN (for example because an earlier
+// computation went wrong) the von Mises must be NaN: a 0, or any other number, would look like "no stress" and
+// would hide the fault. It holds for each of the four stresses. (One way of hiding it: protecting the root with
+// std::max(0.0, ...) or with "if > 0": with a NaN the comparison gives false and the result becomes 0.) In the field, a
+// NaN temperature at a node gives NaN in the triangles that have that node and only in those: in the unit square with the
+// triangles {0, 1, 2} and {0, 2, 3} and node 3 at NaN, triangle 0 has its von Mises (6, as in EXAMPLE 233 with
+// T = (19.5, 19.75, 20)) and triangle 1 is NaN.
 TEST(VonMises2d, ANanIsNeverHiddenAsANumber) {
     const double nan = std::numeric_limits<double>::quiet_NaN();
     EXPECT_TRUE(std::isnan(von_mises_2d({nan, 2.0, 3.0}, 2.0)));

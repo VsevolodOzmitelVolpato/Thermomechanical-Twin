@@ -7,7 +7,7 @@
 | results           | read at t = 300 s: the peak temperature at the source (a rise above the ambient one, over the nodes within 25 mm of its centre), the peak von Mises stress (all the triangles) and the peak displacement (all the nodes) |
 | indices           | S (first order) and ST (total) of every number and every result; estimators of Saltelli and of Jansen on a scrambled Sobol sequence, seed 0; 95 % intervals from 200 bootstrap resamples                                 |
 | size              | n = 4096: n (d + 2) = 28672 runs of the model; the convergence is followed from n = 128                                                                                                                                  |
-| study             | 28672 distinct runs of the ROM (17.92 ms each, the three results at the last state only): 8.6 min; the whole study, with the indices and their intervals: 8.6 min                                                        |
+| study             | 28672 distinct runs of the ROM (1.63 ms each, the three results at the last state only): 47 s; the whole study, with the indices and their intervals: 48 s                                                               |
 | machine           | Windows-11-10.0.26200-SP0, Python 3.14.7, NumPy 2.5.4, SciPy 1.18.1                                                                                                                                                      |
 
 ### Uncertain numbers (independent, uniform on the range)
@@ -103,13 +103,13 @@
 
 ### Cost of the study (ROM: offline phase included; full model: estimated from its runs)
 
-|    n |  runs |     ROM | C++ full model | ratio |
-|-----:|------:|--------:|---------------:|------:|
-|  128 |   896 | 2.4 min |          1.8 h |    44 |
-|  256 |  1792 | 2.7 min |          3.5 h |    78 |
-|  512 |  3584 | 3.2 min |          7.0 h |   130 |
-| 1024 |  7168 | 4.3 min |           14 h |   200 |
-| 2048 | 14336 | 6.4 min |       1.2 days |   260 |
-| 4096 | 28672 |  11 min |       2.3 days |   310 |
+|    n |  runs |  ROM | C++ full model | ratio |
+|-----:|------:|-----:|---------------:|------:|
+|  128 |   896 | 12 s |        7.0 min |    34 |
+|  256 |  1792 | 14 s |         14 min |    61 |
+|  512 |  3584 | 17 s |         28 min |   100 |
+| 1024 |  7168 | 23 s |         56 min |   150 |
+| 2048 | 14336 | 34 s |          1.9 h |   200 |
+| 4096 | 28672 | 58 s |          3.8 h |   230 |
 
-One run of the ROM takes 17.92 ms and one run of the full model 7.0 s, both with the last state only; the offline phase of the ROM takes 2.1 min.
+One run of the ROM takes 1.63 ms and one run of the full model 472 ms, both with the last state only; the offline phase of the ROM takes 11 s.

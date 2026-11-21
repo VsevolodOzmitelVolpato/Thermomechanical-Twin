@@ -13,83 +13,83 @@
 #include "Elasticity2D.h"
 #include "Mesh2D.h"
 
-// ---- Dagli spostamenti alle tensioni: sigma = D (B u - eps_th) -----------------------------------------------------
+// ---- From displacements to stresses: sigma = D (B u - eps_th) ------------------------------------------------------
 //
-// Con gli spostamenti u della lastra (solve_displacement_2d) si calcola la tensione in ogni triangolo. Dentro un
-// triangolo lo spostamento e' lineare, quindi la deformazione B u_e e' costante, e lo e' anche la tensione: tre numeri
-// (sigma_xx, sigma_yy, sigma_xy) per triangolo. Come in 1D (sigma = E (u' - alpha dT)) la tensione nasce solo dalla
-// parte di deformazione che NON e' dovuta al calore:
+// With the displacements u of the plate (solve_displacement_2d) the stress is computed in every triangle. Inside a
+// triangle the displacement is linear, so the strain B u_e is constant, and so is the stress: three numbers
+// (sigma_xx, sigma_yy, sigma_xy) per triangle. As in 1D (sigma = E (u' - alpha dT)) the stress arises only from the
+// part of the strain that is NOT due to heat:
 //     sigma = D (B u_e - eps_th),        eps_th = (1 + nu) alpha dT (1, 1, 0).
-// Le funzioni sono due.
-//   - element_stress_2d(mesh, e, D, u_e, eps_th) e' la tensione di UN triangolo: gli servono i suoi sei spostamenti
-//     (u0, v0, u1, v1, u2, v2) e la sua deformazione termica.
-//   - stress_field_2d(mesh, D, nu, alpha, u, T, T_ref) e' quella di TUTTA la mesh: per ogni triangolo prende dai 2 n
-//     numeri di u i suoi sei spostamenti (il locale i e' il globale 2 t[i / 2] + i % 2), calcola dT come la media delle
-//     temperature dei suoi tre nodi meno T_ref (come assemble_thermal_load_2d) e chiama la funzione del triangolo.
-// Cosa devono fare, ed e' quello che i test controllano:
-//   - la tensione di un triangolo si calcola a mano (ESEMPIO 181), e per ogni campo lineare, ogni forma di triangolo e
-//     ogni D, anche non simmetrica (ESEMPIO 182); un triangolo che non esiste lancia std::out_of_range (ESEMPIO 183);
-//   - sul quadrato unitario le tensioni dei problemi dei passi prima si calcolano a mano (ESEMPIO 184);
-//   - un campo lineare ha la stessa tensione in tutti i triangoli, su ogni mesh (ESEMPIO 185); la lastra scaldata e
-//     incastrata ha tensione -D eps_th, quella libera nessuna (ESEMPIO 186);
-//   - ogni triangolo usa la media delle temperature dei suoi nodi (ESEMPIO 187) e i suoi nodi (ESEMPIO 188);
-//   - le forze sui nodi delle tensioni sono K u - F (ESEMPIO 189), e in un corpo libero scaldato sono tutte 0
-//     (ESEMPIO 190): le tensioni sono in equilibrio;
-//   - il risultato e' lineare in spostamenti, temperatura e materiale (ESEMPIO 191) e non legge i nodi fuori da ogni
-//     triangolo (ESEMPIO 192); i dati sbagliati lanciano std::invalid_argument (ESEMPIO 193);
-//   - insieme a solve_displacement_2d: la trazione di un rettangolo (ESEMPIO 194), la lastra scaldata fra due pareti,
-//     con la tensione di libro sigma_xx = -E alpha dT / (1 - nu) (ESEMPIO 195), e la stessa lastra in acciaio con 40 x
-//     40 celle (ESEMPIO 196).
+// There are two functions.
+//   - element_stress_2d(mesh, e, D, u_e, eps_th) is the stress of ONE triangle: it needs its six displacements
+//     (u0, v0, u1, v1, u2, v2) and its thermal strain.
+//   - stress_field_2d(mesh, D, nu, alpha, u, T, T_ref) is that of the WHOLE mesh: for each triangle it takes from
+//     the 2 n numbers of u its six displacements (the local i is the global 2 t[i / 2] + i % 2), computes dT as the
+//     mean of the temperatures of its three nodes minus T_ref (as assemble_thermal_load_2d) and calls the triangle function.
+// What they must do, and this is what the tests check:
+//   - the stress of a triangle is computed by hand (EXAMPLE 181), and for every linear field, every shape of triangle and
+//     every D, even a non-symmetric one (EXAMPLE 182); a nonexistent triangle throws std::out_of_range (EXAMPLE 183);
+//   - on the unit square the stresses of the problems of the previous steps are computed by hand (EXAMPLE 184);
+//   - a linear field has the same stress in all the triangles, on every mesh (EXAMPLE 185); the heated plate that is
+//     clamped has stress -D eps_th, the free one none (EXAMPLE 186);
+//   - each triangle uses the mean of the temperatures of its nodes (EXAMPLE 187) and its own nodes (EXAMPLE 188);
+//   - the forces on the nodes from the stresses are K u - F (EXAMPLE 189), and in a free heated body they are all 0
+//     (EXAMPLE 190): the stresses are in equilibrium;
+//   - the result is linear in displacements, temperature and material (EXAMPLE 191) and does not read the nodes
+//     outside every triangle (EXAMPLE 192); wrong data throw std::invalid_argument (EXAMPLE 193);
+//   - together with solve_displacement_2d: the stretching of a rectangle (EXAMPLE 194), the plate heated between two walls,
+//     with the textbook stress sigma_xx = -E alpha dT / (1 - nu) (EXAMPLE 195), and the same plate in steel with 40 x
+//     40 cells (EXAMPLE 196).
 
 namespace {
 
-// Un rettangolo lx x ly diviso in nx x ny celle, come in rectangle_mesh.
+// A rectangle lx x ly divided into nx x ny cells, as in rectangle_mesh.
 struct Grid {
     double lx, ly;
     std::size_t nx, ny;
 };
 
-// Sei rettangoli di forme molto diverse (gli stessi dei test degli spostamenti).
+// Six rectangles of very different shapes (the same as in the displacement tests).
 std::vector<Grid> sample_grids() {
-    return {{1.0, 1.0, 1, 1},    // il quadrato unitario: due triangoli
-            {2.0, 1.0, 2, 1},    // due celle
-            {3.0, 1.5, 4, 3},    // celle 0.75 x 0.5
-            {1.0, 1.0, 6, 6},    // 72 triangoli
-            {0.2, 0.05, 5, 2},   // piccolo (20 cm per 5 cm, in metri)
-            {10.0, 0.1, 1, 7}};  // molto schiacciato: celle 10 x 0.0143
+    return {{1.0, 1.0, 1, 1},    // the unit square: two triangles
+            {2.0, 1.0, 2, 1},    // two cells
+            {3.0, 1.5, 4, 3},    // 0.75 x 0.5 cells
+            {1.0, 1.0, 6, 6},    // 72 triangles
+            {0.2, 0.05, 5, 2},   // small (20 cm by 5 cm, in meters)
+            {10.0, 0.1, 1, 7}};  // very flat: 10 x 0.0143 cells
 }
 
-// Il quadrato unitario diviso lungo la diagonale da (1, 0) a (0, 1): nodi 0 = (0, 0), 1 = (1, 0), 2 = (0, 1), 3 =
-// (1, 1) e triangoli (0, 1, 2) e (1, 3, 2), tutti e due con area 1/2.
+// The unit square divided along the diagonal from (1, 0) to (0, 1): nodes 0 = (0, 0), 1 = (1, 0), 2 = (0, 1), 3 =
+// (1, 1) and triangles (0, 1, 2) and (1, 3, 2), both with area 1/2.
 Mesh2D unit_square() {
     return Mesh2D({0.0, 1.0, 0.0, 1.0}, {0.0, 0.0, 1.0, 1.0}, {{0, 1, 2}, {1, 3, 2}});
 }
 
-// Il triangolo grande con il nodo 3 dentro (area 9/2), che non e' un rettangolo.
+// The large triangle with node 3 inside (area 9/2), which is not a rectangle.
 Mesh2D triangle_with_interior_node() {
     return Mesh2D({0.0, 3.0, 0.0, 1.0}, {0.0, 0.0, 3.0, 1.0}, {{0, 1, 3}, {1, 2, 3}, {2, 0, 3}});
 }
 
-// Un quadrilatero irregolare con un nodo dentro: 0 = (0, 0), 1 = (4, 0), 2 = (3, 3), 3 = (-1, 2) e, dentro,
-// 4 = (1, 0.7). Quattro triangoli attorno al nodo 4, tutti di forma e area diverse.
+// An irregular quadrilateral with a node inside: 0 = (0, 0), 1 = (4, 0), 2 = (3, 3), 3 = (-1, 2) and, inside,
+// 4 = (1, 0.7). Four triangles around node 4, all of different shape and area.
 Mesh2D irregular_quadrilateral() {
     return Mesh2D({0.0, 4.0, 3.0, -1.0, 1.0}, {0.0, 0.0, 3.0, 2.0, 0.7},
                   {{0, 1, 4}, {1, 2, 4}, {2, 3, 4}, {3, 0, 4}});
 }
 
-// Due triangoli di area DIVERSA: 0 = (0, 0), 1 = (4, 0), 2 = (1, 2), 3 = (6, 4); (0, 1, 2) ha A = 4 e (1, 3, 2) ha
+// Two triangles of DIFFERENT area: 0 = (0, 0), 1 = (4, 0), 2 = (1, 2), 3 = (6, 4); (0, 1, 2) has A = 4 and (1, 3, 2) has
 // A = 8.
 Mesh2D two_triangles_of_different_area() {
     return Mesh2D({0.0, 4.0, 1.0, 6.0}, {0.0, 0.0, 2.0, 4.0}, {{0, 1, 2}, {1, 3, 2}});
 }
 
-// Sei nodi e due soli triangoli, (1, 2, 3) e (1, 3, 4): i nodi 0 = (5, 5) e 5 = (7, 7) non stanno in nessun
-// triangolo. Gli altri quattro sono il quadrato unitario: 1 = (0, 0), 2 = (1, 0), 3 = (1, 1), 4 = (0, 1).
+// Six nodes and only two triangles, (1, 2, 3) and (1, 3, 4): nodes 0 = (5, 5) and 5 = (7, 7) are in no
+// triangle. The other four are the unit square: 1 = (0, 0), 2 = (1, 0), 3 = (1, 1), 4 = (0, 1).
 Mesh2D mesh_with_nodes_outside_every_triangle() {
     return Mesh2D({5.0, 0.0, 1.0, 1.0, 0.0, 7.0}, {5.0, 0.0, 0.0, 1.0, 1.0, 7.0}, {{1, 2, 3}, {1, 3, 4}});
 }
 
-// Le mesh in cui ogni nodo sta in almeno un triangolo: sei rettangoli e tre mesh che non sono rettangoli.
+// The meshes in which every node is in at least one triangle: six rectangles and three meshes that are not rectangles.
 std::vector<Mesh2D> sample_meshes() {
     std::vector<Mesh2D> meshes;
     for (const Grid& g : sample_grids()) {
@@ -101,24 +101,24 @@ std::vector<Mesh2D> sample_meshes() {
     return meshes;
 }
 
-// Materiali a mano (3 x 3, indici xx, yy, xy), simmetrici e definiti positivi.
+// Hand-made materials (3 x 3, indices xx, yy, xy), symmetric and positive definite.
 Matrix3 hooke_quarter() {  // E = 1, nu = 1/4: lambda = mu = 0.4
     return {{{1.2, 0.4, 0.0}, {0.4, 1.2, 0.0}, {0.0, 0.0, 0.4}}};
 }
-Matrix3 general() {  // tutti i numeri diversi, anche l'accoppiamento con il taglio
+Matrix3 general() {  // all the numbers different, also the coupling with shear
     return {{{2.0, 0.5, 0.1}, {0.5, 3.0, -0.2}, {0.1, -0.2, 1.0}}};
 }
-Matrix3 steel() {  // un materiale vero, rigido: numeri di ordine 1e11
+Matrix3 steel() {  // a real, stiff material: numbers of order 1e11
     return plane_strain_matrix(210e9, 0.3);
 }
-// Una D che NON e' simmetrica (nessun materiale vero lo e', ma la funzione usa D come la riceve): servono le righe, non
-// le colonne.
+// A D that is NOT symmetric (no real material is, but the function uses D as it receives it): the rows matter, not
+// the columns.
 Matrix3 nonsymmetric() {
     return {{{2.0, 0.5, 0.1}, {0.7, 3.0, -0.2}, {0.3, -0.4, 1.0}}};
 }
 
-// Un materiale per la forza termica: la matrice D, il coefficiente di Poisson nu e il coefficiente di dilatazione alpha
-// (D e nu arrivano separati alle funzioni, quindi si provano anche materiali non fisici: nu e alpha negativi).
+// A material for the thermal force: the matrix D, the Poisson ratio nu and the expansion coefficient alpha
+// (D and nu reach the functions separately, so non-physical materials are tried too: negative nu and alpha).
 struct Material {
     Matrix3 D;
     double nu;
@@ -127,14 +127,14 @@ struct Material {
 
 std::vector<Material> sample_materials() {
     return {{hooke_quarter(), 0.25, 1.0e-3},  // E = 1, nu = 1/4
-            {general(), -0.3, -2.0e-3},       // D qualunque, nu negativo e alpha negativo
-            {steel(), 0.3, 12.0e-6}};         // acciaio: E = 210 GPa, nu = 0.3, alpha = 12e-6 per kelvin
+            {general(), -0.3, -2.0e-3},       // any D, negative nu and negative alpha
+            {steel(), 0.3, 12.0e-6}};         // steel: E = 210 GPa, nu = 0.3, alpha = 12e-6 per kelvin
 }
 
-// La temperatura di riferimento, quella senza dilatazione termica (20 gradi centigradi in kelvin).
+// The reference temperature, the one with no thermal expansion (20 degrees Celsius in kelvin).
 const double reference_temperature = 293.15;
 
-// Il piu' grande valore assoluto di un vettore, di tre numeri e di una tabella 3 x 3.
+// The largest absolute value of a vector, of three numbers and of a 3 x 3 table.
 double largest_entry(const std::vector<double>& v) {
     double m = 0.0;
     for (double a : v) {
@@ -148,7 +148,7 @@ double largest_entry(const Vector3& v) {
 double largest_entry(const Matrix3& D) {
     return std::max(largest_entry(D[0]), std::max(largest_entry(D[1]), largest_entry(D[2])));
 }
-// Il piu' grande valore assoluto di tutte le tensioni.
+// The largest absolute value of all the stresses.
 double largest_entry(const std::vector<Vector3>& sigma) {
     double m = 0.0;
     for (const Vector3& s : sigma) {
@@ -157,7 +157,7 @@ double largest_entry(const std::vector<Vector3>& sigma) {
     return m;
 }
 
-// La dimensione maggiore della mesh (il piu' grande fra la larghezza e l'altezza).
+// The larger dimension of the mesh (the larger of the width and the height).
 double mesh_size(const Mesh2D& mesh) {
     double x_min = mesh.x(0);
     double x_max = mesh.x(0);
@@ -172,7 +172,7 @@ double mesh_size(const Mesh2D& mesh) {
     return std::max(x_max - x_min, y_max - y_min);
 }
 
-// La dimensione del triangolo piu' piccolo: la radice dell'area.
+// The size of the smallest triangle: the square root of the area.
 double smallest_size(const Mesh2D& mesh) {
     double s = std::sqrt(mesh.area(0));
     for (std::size_t e = 1; e < mesh.num_triangles(); ++e) {
@@ -181,7 +181,7 @@ double smallest_size(const Mesh2D& mesh) {
     return s;
 }
 
-// Il nodo piu' lontano dal nodo p.
+// The node farthest from node p.
 std::size_t farthest_node(const Mesh2D& mesh, std::size_t p) {
     std::size_t q = p;
     double best = -1.0;
@@ -195,10 +195,10 @@ std::size_t farthest_node(const Mesh2D& mesh, std::size_t p) {
     return q;
 }
 
-// Tre gradi di liberta' che bloccano i tre moti rigidi, senza altro: u e v del nodo p (le due traslazioni) e una
-// componente del nodo q piu' lontano da p (la rotazione). Una rotazione di theta attorno a p sposta q di
-// theta (-(y_q - y_p), x_q - x_p): si fissa v se x_q - x_p e' la differenza piu' grande in valore assoluto (cosi' la
-// rotazione dovrebbe spostare v di un numero diverso da 0), altrimenti u.
+// Three degrees of freedom that block the three rigid motions, and nothing more: u and v of node p (the two
+// translations) and one component of the node q farthest from p (the rotation). A rotation by theta about p moves q by
+// theta (-(y_q - y_p), x_q - x_p): v is fixed if x_q - x_p is the larger difference in absolute value (so that the
+// rotation would have to move v by a number different from 0), otherwise u.
 std::vector<std::size_t> isostatic_dofs(const Mesh2D& mesh, std::size_t p) {
     const std::size_t q = farthest_node(mesh, p);
     const double dx = mesh.x(q) - mesh.x(p);
@@ -206,18 +206,18 @@ std::vector<std::size_t> isostatic_dofs(const Mesh2D& mesh, std::size_t p) {
     return {2 * p, 2 * p + 1, std::fabs(dx) >= std::fabs(dy) ? 2 * q + 1 : 2 * q};
 }
 
-// Un campo di spostamento lineare:  u = a0 + a1 x + a2 y,  v = b0 + b1 x + b2 y.
-// In ogni punto ha la stessa deformazione (eps_xx, eps_yy, gamma_xy) = (a1, b2, a2 + b1).
+// A linear displacement field:  u = a0 + a1 x + a2 y,  v = b0 + b1 x + b2 y.
+// At every point it has the same strain (eps_xx, eps_yy, gamma_xy) = (a1, b2, a2 + b1).
 struct LinearField {
     double a0, a1, a2, b0, b1, b2;
 };
 
-// La deformazione (eps_xx, eps_yy, gamma_xy) del campo f, la stessa in ogni punto.
+// The strain (eps_xx, eps_yy, gamma_xy) of the field f, the same at every point.
 Vector3 strain_of(const LinearField& f) {
     return {f.a1, f.b2, f.a2 + f.b1};
 }
 
-// I 2 n numeri (u_0, v_0, u_1, v_1, ...) del campo f nei nodi della mesh: u del nodo I al numero 2 I, v al 2 I + 1.
+// The 2 n numbers (u_0, v_0, u_1, v_1, ...) of the field f at the nodes of the mesh: u of node I at number 2 I, v at 2 I + 1.
 std::vector<double> nodal_displacements(const Mesh2D& mesh, const LinearField& f) {
     std::vector<double> u(2 * mesh.num_nodes());
     for (std::size_t I = 0; I < mesh.num_nodes(); ++I) {
@@ -229,7 +229,7 @@ std::vector<double> nodal_displacements(const Mesh2D& mesh, const LinearField& f
     return u;
 }
 
-// I sei spostamenti (u0, v0, u1, v1, u2, v2) del campo f nei tre nodi del triangolo e.
+// The six displacements (u0, v0, u1, v1, u2, v2) of the field f at the three nodes of the triangle e.
 Vector6 local_values(const Mesh2D& mesh, std::size_t e, const LinearField& f) {
     const Triangle& t = mesh.triangle(e);
     Vector6 u_e{};
@@ -242,8 +242,8 @@ Vector6 local_values(const Mesh2D& mesh, std::size_t e, const LinearField& f) {
     return u_e;
 }
 
-// I sei spostamenti del triangolo e presi dal vettore u di tutta la mesh: il grado di liberta' locale i, da 0 a 5, e'
-// quello globale 2 t[i / 2] + i % 2.
+// The six displacements of the triangle e taken from the vector u of the whole mesh: the local degree of freedom
+// i, from 0 to 5, is the global one 2 t[i / 2] + i % 2.
 Vector6 gather(const Mesh2D& mesh, std::size_t e, const std::vector<double>& u) {
     const Triangle& t = mesh.triangle(e);
     Vector6 u_e{};
@@ -253,22 +253,22 @@ Vector6 gather(const Mesh2D& mesh, std::size_t e, const std::vector<double>& u) 
     return u_e;
 }
 
-// La media delle temperature dei tre nodi del triangolo e, meno T_ref.
+// The mean of the temperatures of the three nodes of the triangle e, minus T_ref.
 double mean_excess(const Mesh2D& mesh, std::size_t e, const std::vector<double>& T, double T_ref) {
     const Triangle& t = mesh.triangle(e);
     return (T[t[0]] + T[t[1]] + T[t[2]]) / 3.0 - T_ref;
 }
 
-// I moti rigidi: due traslazioni, una rotazione attorno all'origine (u = -y, v = x) e una combinazione.
+// The rigid motions: two translations, a rotation about the origin (u = -y, v = x) and a combination.
 std::vector<LinearField> rigid_motions() {
-    return {{1.0, 0.0, 0.0, 0.0, 0.0, 0.0},     // traslazione in x
-            {0.0, 0.0, 0.0, 1.0, 0.0, 0.0},     // traslazione in y
-            {0.0, 0.0, -1.0, 0.0, 1.0, 0.0},    // rotazione
-            {0.3, 0.0, -0.7, -1.2, 0.7, 0.0}};  // traslazione e rotazione insieme
+    return {{1.0, 0.0, 0.0, 0.0, 0.0, 0.0},     // translation in x
+            {0.0, 0.0, 0.0, 1.0, 0.0, 0.0},     // translation in y
+            {0.0, 0.0, -1.0, 0.0, 1.0, 0.0},    // rotation
+            {0.3, 0.0, -0.7, -1.2, 0.7, 0.0}};  // translation and rotation together
 }
 
-// I sei campi "puri" (u = x, v = y, u = y, v = x e le due traslazioni) piu' uno con tutti i numeri diversi da 0 e
-// deformazioni piccole, come quelle vere (1e-3).
+// The six "pure" fields (u = x, v = y, u = y, v = x and the two translations) plus one with all the numbers
+// different from 0 and small strains, like the real ones (1e-3).
 std::vector<LinearField> strain_fields() {
     return {{0.0, 1.0, 0.0, 0.0, 0.0, 0.0},
             {0.0, 0.0, 0.0, 0.0, 0.0, 1.0},
@@ -279,7 +279,7 @@ std::vector<LinearField> strain_fields() {
             {0.3, 1.0e-3, -2.0e-3, -0.2, 3.0e-3, 5.0e-4}};
 }
 
-// Tutti i campi lineari: i moti rigidi e quelli con deformazione.
+// All the linear fields: the rigid motions and those with strain.
 std::vector<LinearField> all_fields() {
     std::vector<LinearField> fields = rigid_motions();
     for (const LinearField& f : strain_fields()) {
@@ -288,7 +288,7 @@ std::vector<LinearField> all_fields() {
     return fields;
 }
 
-// Numeri che cambiano da un grado di liberta' all'altro senza regole semplici, di ampiezza amplitude.
+// Numbers that change from one degree of freedom to the next with no simple rule, of amplitude amplitude.
 std::vector<double> wavy_vector(std::size_t size, double amplitude) {
     std::vector<double> v(size);
     for (std::size_t i = 0; i < size; ++i) {
@@ -298,8 +298,8 @@ std::vector<double> wavy_vector(std::size_t size, double amplitude) {
     return v;
 }
 
-// Gli stessi numeri spostati di shift posizioni (l'ultimo passa al posto del primo): un vettore diverso, della stessa
-// ampiezza.
+// The same numbers shifted by shift positions (the last goes in place of the first): a different vector, of the same
+// amplitude.
 std::vector<double> shifted(const std::vector<double>& v, std::size_t shift) {
     std::vector<double> w(v.size());
     for (std::size_t i = 0; i < v.size(); ++i) {
@@ -308,7 +308,7 @@ std::vector<double> shifted(const std::vector<double>& v, std::size_t shift) {
     return w;
 }
 
-// D v, riga per colonna: (D v)[i] e' la somma su k di D[i][k] v[k].
+// D v, row by column: (D v)[i] is the sum over k of D[i][k] v[k].
 Vector3 times(const Matrix3& D, const Vector3& v) {
     Vector3 r{};
     for (std::size_t i = 0; i < 3; ++i) {
@@ -323,30 +323,30 @@ Vector3 minus(const Vector3& a, const Vector3& b) {
     return {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
 }
 
-// Una tolleranza per le tensioni: 1e-9 volte il piu' grande numero di D per la somma delle deformazioni in gioco:
-// quella meccanica (strain), quella termica (thermal) e lo spostamento diviso per la dimensione dei triangoli (B u_e
-// sottrae numeri vicini e perde delle cifre in proporzione).
+// A tolerance for the stresses: 1e-9 times the largest number of D times the sum of the strains involved:
+// the mechanical one (strain), the thermal one (thermal) and the displacement divided by the size of the triangles (B u_e
+// subtracts nearby numbers and loses digits in proportion).
 double stress_tolerance(const Matrix3& D, double strain, double thermal, double displacement, double size) {
     return 1e-9 * largest_entry(D) * (strain + thermal + displacement / size);
 }
 
-// Confronta due tensioni (tre numeri) con una tolleranza assoluta.
+// Compares two stresses (three numbers) with an absolute tolerance.
 void expect_stress_near(const Vector3& got, const Vector3& want, double tolerance) {
     for (std::size_t i = 0; i < 3; ++i) {
-        EXPECT_NEAR(got[i], want[i], tolerance) << "componente " << i;
+        EXPECT_NEAR(got[i], want[i], tolerance) << "component " << i;
     }
 }
 
-// Confronta due vettori elemento per elemento, con una tolleranza assoluta.
+// Compares two vectors element by element, with an absolute tolerance.
 void expect_vectors_near(const std::vector<double>& got, const std::vector<double>& want, double tolerance) {
-    ASSERT_EQ(got.size(), want.size()) << "dimensione";
+    ASSERT_EQ(got.size(), want.size()) << "size";
     for (std::size_t i = 0; i < want.size(); ++i) {
-        EXPECT_NEAR(got[i], want[i], tolerance) << "grado di liberta' " << i;
+        EXPECT_NEAR(got[i], want[i], tolerance) << "degree of freedom " << i;
     }
 }
 
-// Le forze sui nodi delle tensioni: per ogni triangolo e i sei numeri A B^T sigma_e (come le forze termiche A B^T D
-// eps_th), sommati nei gradi di liberta' globali 2 t[i / 2] + i % 2.
+// The forces on the nodes from the stresses: for each triangle the six numbers A B^T sigma_e (like the thermal
+// forces A B^T D eps_th), added into the global degrees of freedom 2 t[i / 2] + i % 2.
 std::vector<double> nodal_forces(const Mesh2D& mesh, const std::vector<Vector3>& sigma) {
     std::vector<double> f(2 * mesh.num_nodes(), 0.0);
     for (std::size_t e = 0; e < mesh.num_triangles(); ++e) {
@@ -361,8 +361,8 @@ std::vector<double> nodal_forces(const Mesh2D& mesh, const std::vector<Vector3>&
     return f;
 }
 
-// Un problema con la soluzione esatta nota: le forze, i gradi di liberta' fissati con i loro spostamenti imposti e la
-// soluzione esatta stessa (2 n numeri).
+// A problem with a known exact solution: the forces, the fixed degrees of freedom with their imposed displacements and the
+// exact solution itself (2 n numbers).
 struct Problem {
     std::vector<double> F;
     std::vector<std::size_t> dofs;
@@ -370,16 +370,16 @@ struct Problem {
     std::vector<double> exact;
 };
 
-// La trazione uniforme di un rettangolo (lati lx x ly, E, nu, plane_strain_matrix): il lato sinistro (x = 0) non puo'
-// spostarsi in x (u = 0 su tutti i suoi nodi) e il nodo in basso a sinistra non puo' spostarsi in y (v = 0, cosi' la
-// lastra non scivola in y); sul lato destro agisce la tensione sigma, cioe' su ogni nodo la forza sigma per la
-// lunghezza di bordo che gli spetta (meta' della distanza dal nodo sotto piu' meta' di quella dal nodo sopra).
-// Con sigma_xx = sigma e sigma_yy = 0, in deformazione piana (epsilon_zz = 0, quindi sigma_zz = nu sigma_xx):
+// The uniform stretching of a rectangle (sides lx x ly, E, nu, plane_strain_matrix): the left side (x = 0) cannot
+// move in x (u = 0 at all its nodes) and the bottom-left node cannot move in y (v = 0, so that the
+// plate does not slide in y); on the right side the stress sigma acts, i.e. on each node the force sigma times the
+// length of boundary that belongs to it (half of the distance from the node below plus half of that from the node above).
+// With sigma_xx = sigma and sigma_yy = 0, in plane strain (epsilon_zz = 0, hence sigma_zz = nu sigma_xx):
 //     epsilon_xx = (1 - nu^2) sigma / E,        epsilon_yy = -nu (1 + nu) sigma / E,
-// e la soluzione esatta e' u = epsilon_xx x, v = epsilon_yy y: un campo lineare, che gli elementi riproducono.
+// and the exact solution is u = epsilon_xx x, v = epsilon_yy y: a linear field, which the elements reproduce.
 Problem stretched_rectangle(const Mesh2D& mesh, double lx, double E, double nu, double sigma) {
-    std::vector<std::pair<double, std::size_t>> left;   // (y, nodo)
-    std::vector<std::pair<double, std::size_t>> right;  // (y, nodo)
+    std::vector<std::pair<double, std::size_t>> left;   // (y, node)
+    std::vector<std::pair<double, std::size_t>> right;  // (y, node)
     for (std::size_t I = 0; I < mesh.num_nodes(); ++I) {
         if (mesh.x(I) <= 1e-9 * lx) {
             left.push_back({mesh.y(I), I});
@@ -409,14 +409,14 @@ Problem stretched_rectangle(const Mesh2D& mesh, double lx, double E, double nu, 
     return pr;
 }
 
-// Una lastra scaldata in modo uniforme di dT (T = T_ref + dT in tutti i nodi) e trattenuta fra due pareti: i nodi del
-// lato sinistro (x = 0) e di quello destro (x = lx) non si spostano in x (u = 0), e il nodo in basso a sinistra non si
-// sposta in y (v = 0, cosi' la lastra non scivola in y); sopra e sotto la lastra e' libera. In deformazione piana
-// (epsilon_zz = 0, quindi sigma_zz = nu (sigma_xx + sigma_yy) - E alpha dT) con epsilon_xx = 0 e sigma_yy = 0 le
-// equazioni di Hooke con il calore danno
+// A plate heated uniformly by dT (T = T_ref + dT at all the nodes) and held between two walls: the nodes of the
+// left side (x = 0) and of the right one (x = lx) do not move in x (u = 0), and the bottom-left node does not
+// move in y (v = 0, so that the plate does not slide in y); above and below the plate is free. In plane strain
+// (epsilon_zz = 0, hence sigma_zz = nu (sigma_xx + sigma_yy) - E alpha dT) with epsilon_xx = 0 and sigma_yy = 0 the
+// Hooke equations with heat give
 //     sigma_xx = -E alpha dT / (1 - nu),        epsilon_yy = (1 + nu) alpha dT / (1 - nu),
-// e la soluzione esatta e' u = 0, v = epsilon_yy y: un campo lineare, che gli elementi riproducono. La lastra non puo'
-// allungarsi in x, e il calore che non puo' dilatarla diventa compressione.
+// and the exact solution is u = 0, v = epsilon_yy y: a linear field, which the elements reproduce. The plate cannot
+// lengthen in x, and the heat that cannot expand it becomes compression.
 Problem walls_problem(const Mesh2D& mesh, double lx, double E, double nu, double alpha, double dT) {
     Problem pr;
     pr.F = assemble_thermal_load_2d(mesh, plane_strain_matrix(E, nu), nu, alpha,
@@ -427,7 +427,7 @@ Problem walls_problem(const Mesh2D& mesh, double lx, double E, double nu, double
             pr.dofs.push_back(2 * I);
         }
     }
-    pr.dofs.push_back(1);  // v del nodo 0, che sta in (0, 0)
+    pr.dofs.push_back(1);  // v of node 0, which is at (0, 0)
     pr.values.assign(pr.dofs.size(), 0.0);
 
     const double eyy = (1.0 + nu) * alpha * dT / (1.0 - nu);
@@ -437,22 +437,22 @@ Problem walls_problem(const Mesh2D& mesh, double lx, double E, double nu, double
 
 }  // namespace
 
-// ESEMPIO 181. A mano, un triangolo. Il triangolo 0 del quadrato unitario ha i nodi (0, 0), (1, 0), (0, 1) e area
-// 1/2; con E = 1 e nu = 1/4 e' D = [[1.2, 0.4, 0], [0.4, 1.2, 0], [0, 0, 0.4]]. I sei spostamenti sono
-// (u0, v0, u1, v1, u2, v2) e, con 2 A = 1, la deformazione B u_e e' eps_xx = u1 - u0, eps_yy = v2 - v0, gamma_xy =
+// EXAMPLE 181. By hand, one triangle. Triangle 0 of the unit square has nodes (0, 0), (1, 0), (0, 1) and area
+// 1/2; with E = 1 and nu = 1/4 it is D = [[1.2, 0.4, 0], [0.4, 1.2, 0], [0, 0, 0.4]]. The six displacements are
+// (u0, v0, u1, v1, u2, v2) and, with 2 A = 1, the strain B u_e is eps_xx = u1 - u0, eps_yy = v2 - v0, gamma_xy =
 // (u2 - u0) + (v1 - v0).
-//   (a) Trazione. u_e = (0, 0, 15/16, 0, 0, -5/16) ha eps = (15/16, -5/16, 0) e sigma = D eps =
-//       (1.2 15/16 - 0.4 5/16, 0.4 15/16 - 1.2 5/16, 0) = (1, 0, 0): e' il campo dell'ESEMPIO 168 (a), tensione 1 in x.
-//   (b) Dilatazione libera. Con eps_th = (2.5, 2.5, 0) il triangolo si sposta di u_e = (0, 0, 2.5, 0, 0, 2.5), cioe' di
-//       B u_e = (2.5, 2.5, 0) = eps_th: tutta la deformazione e' dovuta al calore e la tensione e' 0.
-//   (c) Trattenuto. u_e = 0 con lo stesso eps_th: sigma = D (0 - eps_th) = -(1.2 2.5 + 0.4 2.5, 0.4 2.5 + 1.2 2.5, 0) =
-//       (-4, -4, 0): compressione.
-//   (d) Taglio. u_e = (0, 0, 0, 0, 1, 0) (u = y) ha gamma_xy = 1 e sigma = (0, 0, 0.4 1) = (0, 0, 0.4).
-//   (e) Un po' e un po'. u_e = (0, 0, 0.5, 0, 0, 0.5) (eps = (0.5, 0.5, 0)) con eps_th = (2.5, 2.5, 0): conta la
-//       DIFFERENZA, eps - eps_th = (-2, -2, 0), e sigma = (1.2 (-2) + 0.4 (-2), 0.4 (-2) + 1.2 (-2), 0) =
+//   (a) Tension. u_e = (0, 0, 15/16, 0, 0, -5/16) has eps = (15/16, -5/16, 0) and sigma = D eps =
+//       (1.2 15/16 - 0.4 5/16, 0.4 15/16 - 1.2 5/16, 0) = (1, 0, 0): it is the field of EXAMPLE 168 (a), stress 1 in x.
+//   (b) Free expansion. With eps_th = (2.5, 2.5, 0) the triangle moves by u_e = (0, 0, 2.5, 0, 0, 2.5), i.e. by
+//       B u_e = (2.5, 2.5, 0) = eps_th: all the strain is due to heat and the stress is 0.
+//   (c) Held. u_e = 0 with the same eps_th: sigma = D (0 - eps_th) = -(1.2 2.5 + 0.4 2.5, 0.4 2.5 + 1.2 2.5, 0) =
+//       (-4, -4, 0): compression.
+//   (d) Shear. u_e = (0, 0, 0, 0, 1, 0) (u = y) has gamma_xy = 1 and sigma = (0, 0, 0.4 1) = (0, 0, 0.4).
+//   (e) A bit of both. u_e = (0, 0, 0.5, 0, 0, 0.5) (eps = (0.5, 0.5, 0)) with eps_th = (2.5, 2.5, 0): what counts is the
+//       DIFFERENCE, eps - eps_th = (-2, -2, 0), and sigma = (1.2 (-2) + 0.4 (-2), 0.4 (-2) + 1.2 (-2), 0) =
 //       (-3.2, -3.2, 0).
-//   (f) Il triangolo 1. Ha i nodi (1, 0), (1, 1), (0, 1), con b = (0, 1, -1) e c = (-1, 1, 0) (2 A = 1). Se si sposta
-//       in x di 0.2 il suo solo nodo 1 (u_e = (0, 0, 0.2, 0, 0, 0)), eps = (b_1 0.2, 0, c_1 0.2) = (0.2, 0, 0.2) e
+//   (f) Triangle 1. It has nodes (1, 0), (1, 1), (0, 1), with b = (0, 1, -1) and c = (-1, 1, 0) (2 A = 1). If only its
+//       node 1 moves in x by 0.2 (u_e = (0, 0, 0.2, 0, 0, 0)), eps = (b_1 0.2, 0, c_1 0.2) = (0.2, 0, 0.2) and
 //       sigma = (1.2 0.2, 0.4 0.2, 0.4 0.2) = (0.24, 0.08, 0.08).
 TEST(ElasticityStress2d, ElementStressOfASingleTriangleByHand) {
     const Mesh2D mesh = unit_square();
@@ -470,14 +470,14 @@ TEST(ElasticityStress2d, ElementStressOfASingleTriangleByHand) {
                        1e-12);
 }
 
-// ESEMPIO 182. La tensione di un triangolo qualunque, con un campo lineare qualunque. Un campo u = a0 + a1 x + a2 y,
-// v = b0 + b1 x + b2 y ha in ogni punto la deformazione (a1, b2, a2 + b1), e si calcola senza B: la tensione e' D
-// ((a1, b2, a2 + b1) - eps_th), con D usata riga per colonna (sigma[i] e' la somma su k di D[i][k] (...)[k]). Si
-// prova su ogni triangolo di nove mesh (sei rettangoli, il triangolo con un nodo dentro, il quadrilatero irregolare,
-// due triangoli di area diversa), con quattro D (la matrice di Hooke con E = 1, una qualunque, l'acciaio e una NON
-// simmetrica, che distingue le righe dalle colonne), tre deformazioni termiche (anche con il taglio, che la
-// dilatazione termica vera non ha ma la funzione deve sottrarre) e undici campi: i moti rigidi, che hanno tensione 0
-// qualunque sia D, le deformazioni "pure" e un campo con deformazioni di 1e-3 e una traslazione di 0.3.
+// EXAMPLE 182. The stress of any triangle, with any linear field. A field u = a0 + a1 x + a2 y,
+// v = b0 + b1 x + b2 y has at every point the strain (a1, b2, a2 + b1), and it is computed without B: the stress is D
+// ((a1, b2, a2 + b1) - eps_th), with D used row by column (sigma[i] is the sum over k of D[i][k] (...)[k]). It is
+// tried on every triangle of nine meshes (six rectangles, the triangle with a node inside, the irregular quadrilateral,
+// two triangles of different area), with four D (the Hooke matrix with E = 1, an arbitrary one, steel and a NON
+// symmetric one, which tells the rows from the columns), three thermal strains (also with shear, which real thermal
+// expansion does not have but the function must subtract) and eleven fields: the rigid motions, which have stress 0
+// whatever D is, the "pure" strains and a field with strains of 1e-3 and a translation of 0.3.
 TEST(ElasticityStress2d, ElementStressOfAnyLinearFieldOnAnyTriangle) {
     const std::vector<Matrix3> materials = {hooke_quarter(), general(), steel(), nonsymmetric()};
     const std::vector<Vector3> heats = {{0.0, 0.0, 0.0}, {2.5e-3, 2.5e-3, 0.0}, {3.0e-3, -1.0e-3, 2.0e-3}};
@@ -499,7 +499,7 @@ TEST(ElasticityStress2d, ElementStressOfAnyLinearFieldOnAnyTriangle) {
                         u_max = std::max(u_max, std::fabs(a));
                     }
                     for (const Vector3& eps_th : heats) {
-                        SCOPED_TRACE("triangolo " + std::to_string(e));
+                        SCOPED_TRACE("triangle " + std::to_string(e));
                         const Vector3 want = times(D, minus(strain, eps_th));
                         const double tolerance = stress_tolerance(D, largest_entry(strain), largest_entry(eps_th),
                                                                   u_max, size);
@@ -514,8 +514,8 @@ TEST(ElasticityStress2d, ElementStressOfAnyLinearFieldOnAnyTriangle) {
     }
 }
 
-// ESEMPIO 183. Un triangolo che non esiste lancia std::out_of_range (come strain_displacement_matrix, da cui passa):
-// il quadrato unitario ha i triangoli 0 e 1, la mesh di 3 x 3 celle i triangoli da 0 a 17.
+// EXAMPLE 183. A nonexistent triangle throws std::out_of_range (like strain_displacement_matrix, which it relies on):
+// the unit square has triangles 0 and 1, the mesh of 3 x 3 cells has triangles from 0 to 17.
 TEST(ElasticityStress2d, AMissingTriangleThrowsOutOfRange) {
     const Matrix3 D = hooke_quarter();
     const Vector6 u_e = {0.0, 0.0, 1.0, 0.0, 0.0, 1.0};
@@ -535,23 +535,23 @@ TEST(ElasticityStress2d, AMissingTriangleThrowsOutOfRange) {
     EXPECT_THROW(element_stress_2d(grid, 18, D, u_e, eps_th), std::out_of_range);
 }
 
-// ESEMPIO 184. A mano, tutta la mesh. Il quadrato unitario ha 4 nodi, 0 = (0, 0), 1 = (1, 0), 2 = (0, 1), 3 = (1, 1), e
-// due triangoli, (0, 1, 2) e (1, 3, 2). Il materiale ha E = 1 e nu = 1/4 (come nell'ESEMPIO 168) e alpha = 1, con
-// T_ref = 5. Gli spostamenti sono (u0, v0, u1, v1, u2, v2, u3, v3) e le temperature (T0, T1, T2, T3). Ogni problema
-// ha due tensioni, una per triangolo.
-//   (a) La trazione dell'ESEMPIO 168 (a): u = (0, 0, 15/16, 0, 0, -5/16, 15/16, -5/16), T = 5 dappertutto (dT = 0).
-//       Tutti e due i triangoli hanno tensione (1, 0, 0).
-//   (b) Il corpo libero scaldato (b): u = (0, 0, 2.5, 0, 0, 2.5, 2.5, 2.5), T = 7 (dT = 2, eps_th = 1.25 2 (1, 1, 0) =
-//       2.5 (1, 1, 0)): B u = eps_th e tutte e due le tensioni sono 0.
-//   (c) Lo spostamento imposto (c): u = (0, 0, 0.1, 0, 0, -1/30, 0.1, -1/30), T = 5: eps = (0.1, -1/30, 0) e sigma =
-//       (1.2 0.1 - 0.4 / 30, 0.4 0.1 - 1.2 / 30, 0) = (8/75, 0, 0), cioe' (0.10666..., 0, 0) in tutti e due.
-//   (d) Scaldato e incastrato: u = 0, T = 7: sigma = -D eps_th = (-4, -4, 0) in tutti e due.
-//   (e) Si sposta un nodo solo: u = 0 tranne u3 = 0.2 (il numero 6), T = 5. Il triangolo 0, che ha i nodi 0, 1, 2,
-//       non sente il nodo 3: tensione (0, 0, 0). Il triangolo 1, che ha i nodi 1, 3, 2, ha lo spostamento
-//       (0, 0, 0.2, 0, 0, 0) dell'ESEMPIO 181 (f): tensione (0.24, 0.08, 0.08).
-//   (f) La temperatura cambia da un nodo all'altro: u = 0, T = (5, 5, 5, 11). Il triangolo 0 ha i nodi 0, 1, 2 e
-//       dT = (5 + 5 + 5) / 3 - 5 = 0: tensione 0. Il triangolo 1 ha i nodi 1, 3, 2 e dT = (5 + 11 + 5) / 3 - 5 = 2:
-//       tensione -D eps_th = (-4, -4, 0).
+// EXAMPLE 184. By hand, the whole mesh. The unit square has 4 nodes, 0 = (0, 0), 1 = (1, 0), 2 = (0, 1), 3 = (1, 1), and
+// two triangles, (0, 1, 2) and (1, 3, 2). The material has E = 1 and nu = 1/4 (as in EXAMPLE 168) and alpha = 1, with
+// T_ref = 5. The displacements are (u0, v0, u1, v1, u2, v2, u3, v3) and the temperatures (T0, T1, T2, T3). Each problem
+// has two stresses, one per triangle.
+//   (a) The tension of EXAMPLE 168 (a): u = (0, 0, 15/16, 0, 0, -5/16, 15/16, -5/16), T = 5 everywhere (dT = 0).
+//       Both triangles have stress (1, 0, 0).
+//   (b) The free heated body (b): u = (0, 0, 2.5, 0, 0, 2.5, 2.5, 2.5), T = 7 (dT = 2, eps_th = 1.25 2 (1, 1, 0) =
+//       2.5 (1, 1, 0)): B u = eps_th and both stresses are 0.
+//   (c) The imposed displacement (c): u = (0, 0, 0.1, 0, 0, -1/30, 0.1, -1/30), T = 5: eps = (0.1, -1/30, 0) and sigma =
+//       (1.2 0.1 - 0.4 / 30, 0.4 0.1 - 1.2 / 30, 0) = (8/75, 0, 0), i.e. (0.10666..., 0, 0) in both.
+//   (d) Heated and clamped: u = 0, T = 7: sigma = -D eps_th = (-4, -4, 0) in both.
+//   (e) Only one node moves: u = 0 except u3 = 0.2 (number 6), T = 5. Triangle 0, which has nodes 0, 1, 2,
+//       does not feel node 3: stress (0, 0, 0). Triangle 1, which has nodes 1, 3, 2, has the displacement
+//       (0, 0, 0.2, 0, 0, 0) of EXAMPLE 181 (f): stress (0.24, 0.08, 0.08).
+//   (f) The temperature changes from node to node: u = 0, T = (5, 5, 5, 11). Triangle 0 has nodes 0, 1, 2 and
+//       dT = (5 + 5 + 5) / 3 - 5 = 0: stress 0. Triangle 1 has nodes 1, 3, 2 and dT = (5 + 11 + 5) / 3 - 5 = 2:
+//       stress -D eps_th = (-4, -4, 0).
 TEST(ElasticityStress2d, StressesOfTheUnitSquareByHand) {
     const Mesh2D mesh = unit_square();
     const Matrix3 D = hooke_quarter();
@@ -596,13 +596,13 @@ TEST(ElasticityStress2d, StressesOfTheUnitSquareByHand) {
     expect_stress_near(sigma[1], {-4.0, -4.0, 0.0}, 1e-12);
 }
 
-// ESEMPIO 185. Il test della toppa per le tensioni. Con un campo di spostamento LINEARE u = a0 + a1 x + a2 y, v =
-// b0 + b1 x + b2 y la deformazione e' la stessa in ogni triangolo, (a1, b2, a2 + b1), per qualunque forma dei
-// triangoli; con una temperatura uniforme T = T_ref + dT lo e' anche eps_th = c (1, 1, 0), con c = (1 + nu) alpha dT.
-// La tensione D ((a1, b2, a2 + b1) - eps_th) e' allora la stessa in tutti i triangoli. Si prova su nove mesh, tre
-// materiali (anche non fisici, e l'acciaio), tre temperature (dT = 0, +100 e -60 kelvin) e undici campi: i moti
-// rigidi (che hanno tensione -D eps_th, qualunque sia lo spostamento), le deformazioni "pure" e un campo con
-// deformazioni di 1e-3 e una traslazione di 0.3.
+// EXAMPLE 185. The patch test for the stresses. With a LINEAR displacement field u = a0 + a1 x + a2 y, v =
+// b0 + b1 x + b2 y the strain is the same in every triangle, (a1, b2, a2 + b1), for any shape of the
+// triangles; with a uniform temperature T = T_ref + dT so is eps_th = c (1, 1, 0), with c = (1 + nu) alpha dT.
+// The stress D ((a1, b2, a2 + b1) - eps_th) is then the same in all the triangles. It is tried on nine meshes, three
+// materials (also non-physical ones, and steel), three temperatures (dT = 0, +100 and -60 kelvin) and eleven fields: the
+// rigid motions (which have stress -D eps_th, whatever the displacement is), the "pure" strains and a field with
+// strains of 1e-3 and a translation of 0.3.
 TEST(ElasticityStress2d, ALinearDisplacementFieldGivesTheSameStressInEveryTriangle) {
     const std::vector<LinearField> fields = all_fields();
     const std::vector<Mesh2D> meshes = sample_meshes();
@@ -636,14 +636,14 @@ TEST(ElasticityStress2d, ALinearDisplacementFieldGivesTheSameStressInEveryTriang
     }
 }
 
-// ESEMPIO 186. I due estremi della lastra scaldata in modo uniforme (T = T_ref + dT in tutti i nodi, quindi
-// eps_th = c (1, 1, 0) con c = (1 + nu) alpha dT).
-//   - INCASTRATA (u = 0 in tutti i nodi): il calore vorrebbe dilatarla e non puo'. La tensione e' -D eps_th in ogni
-//     triangolo, una compressione se si scalda: e' la tensione che nel passo prima nasceva insieme allo spostamento 0
-//     (ESEMPIO 173). Tutto il calore diventa tensione.
-//   - LIBERA (u = (a0 + c x, b0 + c y), con una traslazione (a0, b0) = (0.3, -0.2) che non cambia niente): il corpo si
-//     dilata di c in ogni direzione, B u = eps_th e la tensione e' 0. Tutto il calore diventa spostamento.
-// Nove mesh, tre materiali e due riscaldamenti (+100 e -60 kelvin).
+// EXAMPLE 186. The two extremes of the plate heated uniformly (T = T_ref + dT at all the nodes, so
+// eps_th = c (1, 1, 0) with c = (1 + nu) alpha dT).
+//   - CLAMPED (u = 0 at all the nodes): the heat would like to expand it and cannot. The stress is -D eps_th in
+//     every triangle, a compression if it is heated: it is the stress that in the previous step arose together with
+//     the displacement 0 (EXAMPLE 173). All the heat becomes stress.
+//   - FREE (u = (a0 + c x, b0 + c y), with a translation (a0, b0) = (0.3, -0.2) that changes nothing): the body
+//     expands by c in every direction, B u = eps_th and the stress is 0. All the heat becomes displacement.
+// Nine meshes, three materials and two heatings (+100 and -60 kelvin).
 TEST(ElasticityStress2d, AHeatedPlateIsStressedWhenClampedAndStressFreeWhenFree) {
     const std::vector<Mesh2D> meshes = sample_meshes();
     for (std::size_t k = 0; k < meshes.size(); ++k) {
@@ -679,16 +679,16 @@ TEST(ElasticityStress2d, AHeatedPlateIsStressedWhenClampedAndStressFreeWhenFree)
     }
 }
 
-// ESEMPIO 187. La temperatura di un triangolo e' la MEDIA delle temperature dei suoi tre nodi, come per le forze
-// termiche (assemble_thermal_load_2d): dT_e = (T[t[0]] + T[t[1]] + T[t[2]]) / 3 - T_ref, e eps_th e' (1 + nu) alpha
-// dT_e (1, 1, 0). Con u = 0 la tensione e' -D eps_th, diversa da un triangolo all'altro
-// (L = la dimensione maggiore della mesh).
-//   - Con una temperatura LINEARE, T = T_ref + g0 + gx x + gy y (g0 = 20 K, gx = 80 K / L, gy = -50 K / L), la media
-//     dei nodi e' il valore nel baricentro: dT_e = g0 + gx cx + gy cy, con (cx, cy) il baricentro del triangolo.
-//   - Con una temperatura che NON e' lineare, T = T_ref + 30 (x / L)^2 - 20 (y / L)^2 + 10 (x / L) (y / L), la media
-//     dei nodi non e' il valore nel baricentro, e la funzione deve usare la media: dT_e = (f0 + f1 + f2) / 3, con f_i
-//     il valore di 30 (x / L)^2 - ... nel nodo i.
-// Nove mesh, tre materiali.
+// EXAMPLE 187. The temperature of a triangle is the MEAN of the temperatures of its three nodes, as for the thermal
+// forces (assemble_thermal_load_2d): dT_e = (T[t[0]] + T[t[1]] + T[t[2]]) / 3 - T_ref, and eps_th is (1 + nu) alpha
+// dT_e (1, 1, 0). With u = 0 the stress is -D eps_th, different from one triangle to another
+// (L = the larger dimension of the mesh).
+//   - With a LINEAR temperature, T = T_ref + g0 + gx x + gy y (g0 = 20 K, gx = 80 K / L, gy = -50 K / L), the mean
+//     of the nodes is the value at the centroid: dT_e = g0 + gx cx + gy cy, with (cx, cy) the centroid of the triangle.
+//   - With a temperature that is NOT linear, T = T_ref + 30 (x / L)^2 - 20 (y / L)^2 + 10 (x / L) (y / L), the mean
+//     of the nodes is not the value at the centroid, and the function must use the mean: dT_e = (f0 + f1 + f2) / 3, with f_i
+//     the value of 30 (x / L)^2 - ... at node i.
+// Nine meshes, three materials.
 TEST(ElasticityStress2d, TheTemperatureOfATriangleIsTheMeanOfItsThreeNodes) {
     const std::vector<Mesh2D> meshes = sample_meshes();
     for (std::size_t k = 0; k < meshes.size(); ++k) {
@@ -719,11 +719,11 @@ TEST(ElasticityStress2d, TheTemperatureOfATriangleIsTheMeanOfItsThreeNodes) {
             ASSERT_EQ(from_linear.size(), mesh.num_triangles());
             ASSERT_EQ(from_curved.size(), mesh.num_triangles());
 
-            // Gli scarti di temperatura sono al piu' 150 kelvin (20 + 80 + 50 nel caso lineare, 60 in quello curvo).
+            // The temperature deviations are at most 150 kelvin (20 + 80 + 50 in the linear case, 60 in the curved one).
             const double thermal = (1.0 + std::fabs(m.nu)) * std::fabs(m.alpha) * 150.0;
             const double tolerance = stress_tolerance(m.D, 0.0, thermal, 0.0, 1.0);
             for (std::size_t e = 0; e < mesh.num_triangles(); ++e) {
-                SCOPED_TRACE("triangolo " + std::to_string(e));
+                SCOPED_TRACE("triangle " + std::to_string(e));
                 const Triangle& t = mesh.triangle(e);
                 const double cx = (mesh.x(t[0]) + mesh.x(t[1]) + mesh.x(t[2])) / 3.0;
                 const double cy = (mesh.y(t[0]) + mesh.y(t[1]) + mesh.y(t[2])) / 3.0;
@@ -743,12 +743,12 @@ TEST(ElasticityStress2d, TheTemperatureOfATriangleIsTheMeanOfItsThreeNodes) {
     }
 }
 
-// ESEMPIO 188. Ogni triangolo usa i SUOI nodi. I campi dei test prima sono lineari o uniformi, e danno la stessa
-// tensione in tutti i triangoli: uno scambio di nodi non si vede. Qui spostamenti e temperature cambiano da un nodo
-// all'altro senza regole semplici (wavy_vector), quindi ogni triangolo ha una tensione sua, e quella del triangolo e
-// deve essere quella di element_stress_2d con i suoi spostamenti u[2 t[i / 2] + i % 2], la media delle temperature
-// dei suoi nodi meno T_ref e la sua deformazione termica plane_strain_thermal_strain(nu, alpha, dT_e). Nove mesh,
-// quattro materiali (anche con la D non simmetrica). Ci si assicura anche che le tensioni non siano tutte uguali.
+// EXAMPLE 188. Each triangle uses ITS OWN nodes. The fields of the previous tests are linear or uniform, and give the same
+// stress in all the triangles: a swap of nodes goes unseen. Here displacements and temperatures change from one node
+// to the next with no simple rule (wavy_vector), so each triangle has a stress of its own, and that of the triangle e
+// must be that of element_stress_2d with its displacements u[2 t[i / 2] + i % 2], the mean of the temperatures
+// of its nodes minus T_ref and its thermal strain plane_strain_thermal_strain(nu, alpha, dT_e). Nine meshes,
+// four materials (also with the non-symmetric D). It is also checked that the stresses are not all equal.
 TEST(ElasticityStress2d, EveryTriangleUsesItsOwnNodes) {
     std::vector<Material> materials = sample_materials();
     materials.push_back({nonsymmetric(), 0.2, 5.0e-4});
@@ -771,7 +771,7 @@ TEST(ElasticityStress2d, EveryTriangleUsesItsOwnNodes) {
             const double tolerance = stress_tolerance(m.D, 0.02, thermal, largest_entry(u), size);
             double spread = 0.0;
             for (std::size_t e = 0; e < mesh.num_triangles(); ++e) {
-                SCOPED_TRACE("triangolo " + std::to_string(e));
+                SCOPED_TRACE("triangle " + std::to_string(e));
                 const Vector3 eps_th =
                     plane_strain_thermal_strain(m.nu, m.alpha, mean_excess(mesh, e, T, reference_temperature));
                 expect_stress_near(sigma[e], element_stress_2d(mesh, e, m.D, gather(mesh, e, u), eps_th), tolerance);
@@ -779,7 +779,7 @@ TEST(ElasticityStress2d, EveryTriangleUsesItsOwnNodes) {
                     spread = std::max(spread, std::fabs(sigma[e][i] - sigma[0][i]));
                 }
             }
-            EXPECT_GT(spread, 1e-3 * largest_entry(sigma)) << "le tensioni dei triangoli sono tutte uguali";
+            EXPECT_GT(spread, 1e-3 * largest_entry(sigma)) << "the stresses of the triangles are all equal";
         }
         if (HasFailure()) {
             return;
@@ -787,13 +787,13 @@ TEST(ElasticityStress2d, EveryTriangleUsesItsOwnNodes) {
     }
 }
 
-// ESEMPIO 189. Le forze sui nodi delle tensioni sono K u - F. Per ogni triangolo A B^T sigma_e sono sei forze sui suoi
-// nodi (come le forze termiche A B^T D eps_th), e sommate come in K danno, grado di liberta' per grado di liberta',
-//     somma sui triangoli di A B^T D (B u_e - eps_th) = K u - F,
-// con K = assemble_elasticity_stiffness_2d e F = assemble_thermal_load_2d: e' l'equazione di equilibrio, scritta con
-// le tensioni. Vale per QUALUNQUE u e T (non solo per la soluzione): il sinistro e' calcolato con la tensione della
-// funzione, il destro con K ed F. Si prova con spostamenti e temperature qualunque (wavy_vector), su nove mesh e
-// quattro materiali (anche con la D non simmetrica: K ed F la usano come viene data).
+// EXAMPLE 189. The forces on the nodes from the stresses are K u - F. For each triangle A B^T sigma_e are six forces on its
+// nodes (like the thermal forces A B^T D eps_th), and summed as in K they give, degree of freedom by degree of freedom,
+//     sum over the triangles of A B^T D (B u_e - eps_th) = K u - F,
+// with K = assemble_elasticity_stiffness_2d and F = assemble_thermal_load_2d: it is the equilibrium equation, written with
+// the stresses. It holds for ANY u and T (not only for the solution): the left side is computed with the stress
+// of the function, the right one with K and F. It is tried with arbitrary displacements and temperatures
+// (wavy_vector), on nine meshes and four materials (also with the non-symmetric D: K and F use it as it is given).
 TEST(ElasticityStress2d, TheNodalForcesOfTheStressesAreKuMinusF) {
     std::vector<Material> materials = sample_materials();
     materials.push_back({nonsymmetric(), 0.2, 5.0e-4});
@@ -818,7 +818,7 @@ TEST(ElasticityStress2d, TheNodalForcesOfTheStressesAreKuMinusF) {
 
             const double scale = largest_entry(Ku) + largest_entry(F);
             for (std::size_t i = 0; i < f.size(); ++i) {
-                EXPECT_NEAR(f[i], Ku[i] - F[i], 1e-10 * scale) << "grado di liberta' " << i;
+                EXPECT_NEAR(f[i], Ku[i] - F[i], 1e-10 * scale) << "degree of freedom " << i;
             }
         }
         if (HasFailure()) {
@@ -827,12 +827,12 @@ TEST(ElasticityStress2d, TheNodalForcesOfTheStressesAreKuMinusF) {
     }
 }
 
-// ESEMPIO 190. In un corpo libero scaldato le tensioni sono in equilibrio da sole. Con una temperatura qualunque
-// (wavy_vector, di ampiezza 40 kelvin) e i soli tre vincoli isostatici (nessuna forza esterna, quindi nessuna
-// reazione) si calcola u con solve_displacement_2d: il corpo si deforma in modo irregolare e ha tensioni diverse da 0
-// (almeno un decimo della tensione termica D eps_th che avrebbe incastrato: senza questo controllo un vettore di
-// tensioni tutte 0 avrebbe forze 0 e passerebbe), e le forze sui nodi A B^T sigma sommate sono 0 in TUTTI i gradi di
-// liberta' (K u = F nei liberi, reazione 0 nei tre fissati). Mesh di 4 x 3 celle, tre materiali.
+// EXAMPLE 190. In a free heated body the stresses are in equilibrium by themselves. With an arbitrary temperature
+// (wavy_vector, of amplitude 40 kelvin) and only the three isostatic constraints (no external force, hence no
+// reaction) u is computed with solve_displacement_2d: the body deforms irregularly and has stresses different from 0
+// (at least a tenth of the thermal stress D eps_th it would have if clamped: without this check a vector of stresses
+// that are all 0 would have forces 0 and would pass), and the forces on the nodes A B^T sigma added up are 0 at ALL
+// the degrees of freedom (K u = F at the free ones, reaction 0 at the three fixed ones). Mesh of 4 x 3 cells, three materials.
 TEST(ElasticityStress2d, TheStressesOfAFreeHeatedBodyAreInEquilibrium) {
     const Mesh2D mesh = rectangle_mesh(3.0, 1.5, 4, 3);
     std::vector<double> T = wavy_vector(mesh.num_nodes(), 40.0);
@@ -848,23 +848,23 @@ TEST(ElasticityStress2d, TheStressesOfAFreeHeatedBodyAreInEquilibrium) {
         ASSERT_EQ(sigma.size(), mesh.num_triangles());
 
         const double thermal_stress = largest_entry(m.D) * (1.0 + std::fabs(m.nu)) * std::fabs(m.alpha) * 40.0;
-        EXPECT_GT(largest_entry(sigma), 0.1 * thermal_stress) << "le tensioni sono troppo piccole per provare qualcosa";
+        EXPECT_GT(largest_entry(sigma), 0.1 * thermal_stress) << "the stresses are too small to prove anything";
 
         const std::vector<double> f = nodal_forces(mesh, sigma);
         const double scale = largest_entry(F);
         for (std::size_t i = 0; i < f.size(); ++i) {
-            EXPECT_NEAR(f[i], 0.0, 1e-8 * scale) << "grado di liberta' " << i;
+            EXPECT_NEAR(f[i], 0.0, 1e-8 * scale) << "degree of freedom " << i;
         }
     }
 }
 
-// ESEMPIO 191. Le tensioni sono LINEARI in spostamenti, temperatura e materiale. Con lo stesso materiale e due coppie
-// (u1, T1) e (u2, T2), con dT = T - T_ref:
-//   - la somma: sigma(u1 + u2, T_ref + dT1 + dT2) = sigma(u1, T1) + sigma(u2, T2);
-//   - un fattore s = -2.5 (anche negativo) su tutti e due: sigma(s u1, T_ref + s dT1) = s sigma(u1, T1);
-//   - il materiale: con 3 D al posto di D (e gli stessi nu e alpha) tutte le tensioni sono 3 volte quelle di D.
-// E due cose sul calore: con alpha = 0 la temperatura non conta (le tensioni sono quelle della sola B u_e, con T
-// qualunque o con T = T_ref), e con T = T_ref non conta alpha. Nove mesh, tre materiali.
+// EXAMPLE 191. The stresses are LINEAR in displacements, temperature and material. With the same material and two pairs
+// (u1, T1) and (u2, T2), with dT = T - T_ref:
+//   - the sum: sigma(u1 + u2, T_ref + dT1 + dT2) = sigma(u1, T1) + sigma(u2, T2);
+//   - a factor s = -2.5 (even negative) on both: sigma(s u1, T_ref + s dT1) = s sigma(u1, T1);
+//   - the material: with 3 D in place of D (and the same nu and alpha) all the stresses are 3 times those of D.
+// And two things about heat: with alpha = 0 the temperature does not matter (the stresses are those of B u_e
+// alone, with any T or with T = T_ref), and with T = T_ref alpha does not matter. Nine meshes, three materials.
 TEST(ElasticityStress2d, TheStressIsLinearInDisplacementTemperatureAndMaterial) {
     const std::vector<Mesh2D> meshes = sample_meshes();
     for (std::size_t k = 0; k < meshes.size(); ++k) {
@@ -918,7 +918,7 @@ TEST(ElasticityStress2d, TheStressIsLinearInDisplacementTemperatureAndMaterial) 
             ASSERT_EQ(s1.size(), mesh.num_triangles());
 
             for (std::size_t e = 0; e < mesh.num_triangles(); ++e) {
-                SCOPED_TRACE("triangolo " + std::to_string(e));
+                SCOPED_TRACE("triangle " + std::to_string(e));
                 Vector3 want_sum{};
                 Vector3 want_scaled{};
                 Vector3 want_tripled{};
@@ -940,10 +940,10 @@ TEST(ElasticityStress2d, TheStressIsLinearInDisplacementTemperatureAndMaterial) 
     }
 }
 
-// ESEMPIO 192. I nodi che non stanno in nessun triangolo (la mesh ha i nodi 0 = (5, 5) e 5 = (7, 7) fuori dai due
-// triangoli del quadrato 1, 2, 3, 4) non vengono letti: ne' il loro spostamento (i numeri 0, 1, 10 e 11 di u) ne' la
-// loro temperatura. Con dei NaN al loro posto le tensioni dei due triangoli sono IDENTICHE a quelle calcolate con dei
-// numeri qualunque, e senza NaN.
+// EXAMPLE 192. The nodes that are in no triangle (the mesh has nodes 0 = (5, 5) and 5 = (7, 7) outside the two
+// triangles of the square 1, 2, 3, 4) are not read: neither their displacement (numbers 0, 1, 10 and 11 of u) nor their
+// temperature. With NaNs in their place the stresses of the two triangles are IDENTICAL to those computed with
+// arbitrary numbers, and without NaN.
 TEST(ElasticityStress2d, NodesOutsideEveryTriangleAreNotRead) {
     const Mesh2D mesh = mesh_with_nodes_outside_every_triangle();
     const Matrix3 D = hooke_quarter();
@@ -957,7 +957,7 @@ TEST(ElasticityStress2d, NodesOutsideEveryTriangleAreNotRead) {
     std::vector<double> u_nan = u;
     std::vector<double> T_nan = T;
     for (std::size_t d : {0u, 1u, 10u, 11u}) {
-        u[d] = 123.0;  // numeri qualunque
+        u[d] = 123.0;  // arbitrary numbers
         u_nan[d] = not_a_number;
     }
     T[0] = -5000.0;
@@ -971,19 +971,19 @@ TEST(ElasticityStress2d, NodesOutsideEveryTriangleAreNotRead) {
     ASSERT_EQ(with_nan.size(), 2u);
     for (std::size_t e = 0; e < 2; ++e) {
         for (std::size_t i = 0; i < 3; ++i) {
-            EXPECT_FALSE(std::isnan(with_nan[e][i])) << "triangolo " << e << ", componente " << i;
-            EXPECT_EQ(with_nan[e][i], clean[e][i]) << "triangolo " << e << ", componente " << i;
+            EXPECT_FALSE(std::isnan(with_nan[e][i])) << "triangle " << e << ", component " << i;
+            EXPECT_EQ(with_nan[e][i], clean[e][i]) << "triangle " << e << ", component " << i;
         }
     }
 }
 
-// ESEMPIO 193. Dati sbagliati: la funzione lancia std::invalid_argument (e non legge fuori da un vettore). Con la
-// mesh di 2 x 1 celle (6 nodi, 12 spostamenti) sono sbagliati:
-//   - un u che non ha 12 numeri (11, 13, 6, 24, 0);
-//   - una T che non ha 6 numeri (5, 7, 12, 0);
-//   - un coefficiente di Poisson che non sta fra -1 e 1/2, estremi esclusi (-1, 0.5, -2, 1, +-infinito, NaN).
-// Vanno bene invece nu = -0.99 e 0.49 (quasi gli estremi), alpha = 0 e negativo, e qualunque T_ref (anche sotto lo zero
-// assoluto): D, alpha, u, T e T_ref non vengono controllati.
+// EXAMPLE 193. Wrong data: the function throws std::invalid_argument (and does not read outside a vector). With the
+// mesh of 2 x 1 cells (6 nodes, 12 displacements) the following are wrong:
+//   - a u that does not have 12 numbers (11, 13, 6, 24, 0);
+//   - a T that does not have 6 numbers (5, 7, 12, 0);
+//   - a Poisson ratio that is not between -1 and 1/2, ends excluded (-1, 0.5, -2, 1, +-infinity, NaN).
+// These are fine instead: nu = -0.99 and 0.49 (almost the ends), alpha = 0 and negative, and any T_ref (even below absolute
+// zero): D, alpha, u, T and T_ref are not checked.
 TEST(ElasticityStress2d, BadInputsThrowInvalidArgument) {
     const Mesh2D mesh = rectangle_mesh(2.0, 1.0, 2, 1);
     ASSERT_EQ(mesh.num_nodes(), 6u);
@@ -998,12 +998,12 @@ TEST(ElasticityStress2d, BadInputsThrowInvalidArgument) {
     for (std::size_t size : {11u, 13u, 6u, 24u, 0u}) {
         EXPECT_THROW(stress_field_2d(mesh, D, 0.25, 1.0e-3, std::vector<double>(size, 0.01), T, 293.15),
                      std::invalid_argument)
-            << "u di " << size << " numeri";
+            << "u of " << size << " numbers";
     }
     for (std::size_t size : {5u, 7u, 12u, 0u}) {
         EXPECT_THROW(stress_field_2d(mesh, D, 0.25, 1.0e-3, u, std::vector<double>(size, 300.0), 293.15),
                      std::invalid_argument)
-            << "T di " << size << " numeri";
+            << "T of " << size << " numbers";
     }
     for (double nu : {-1.0, 0.5, -2.0, 1.0, -infinity, infinity, not_a_number}) {
         EXPECT_THROW(stress_field_2d(mesh, D, nu, 1.0e-3, u, T, 293.15), std::invalid_argument) << "nu = " << nu;
@@ -1016,12 +1016,12 @@ TEST(ElasticityStress2d, BadInputsThrowInvalidArgument) {
     EXPECT_NO_THROW(stress_field_2d(mesh, D, 0.25, 1.0e-3, u, T, -300.0));
 }
 
-// ESEMPIO 194. Insieme a solve_displacement_2d: la trazione di un rettangolo. Come nell'ESEMPIO 169 (lato sinistro con
-// u = 0, un nodo con v = 0, sul lato destro la tensione sigma = 1e-3 E) si calcolano gli spostamenti, e da questi le
-// tensioni: in ogni triangolo sigma_xx = sigma, sigma_yy = 0 e sigma_xy = 0, e T = T_ref non scalda niente. Si prova su
-// sei rettangoli di forma diversa (anche molto schiacciati), con E = 1 e con E = 210e9 e con nu = 0, 1/4, 0.3, 0.4: gli
-// errori degli spostamenti (1e-12 e meno) si moltiplicano per 1 / h nella deformazione, e le tensioni coincidono con
-// sigma entro 1e-6 sigma.
+// EXAMPLE 194. Together with solve_displacement_2d: the stretching of a rectangle. As in EXAMPLE 169 (left side with
+// u = 0, one node with v = 0, on the right side the stress sigma = 1e-3 E) the displacements are computed, and from them the
+// stresses: in every triangle sigma_xx = sigma, sigma_yy = 0 and sigma_xy = 0, and T = T_ref heats nothing. It is
+// tried on six rectangles of different shapes (even very flat ones), with E = 1 and with E = 210e9 and with
+// nu = 0, 1/4, 0.3, 0.4: the errors of the displacements (1e-12 and less) are multiplied by 1 / h in the strain, and
+// the stresses coincide with sigma within 1e-6 sigma.
 TEST(ElasticityStress2d, TensionOfARectangleThroughTheSolver) {
     for (const Grid& g : sample_grids()) {
         const Mesh2D mesh = rectangle_mesh(g.lx, g.ly, g.nx, g.ny);
@@ -1046,24 +1046,24 @@ TEST(ElasticityStress2d, TensionOfARectangleThroughTheSolver) {
     }
 }
 
-// ESEMPIO 195. La lastra scaldata fra due pareti, con la formula di libro (walls_problem). Si scalda di dT in modo
-// uniforme una lastra che non puo' allungarsi in x (u = 0 sui lati sinistro e destro) e che in y e' libera. Il calore
-// che non puo' dilatarla in x diventa compressione:
+// EXAMPLE 195. The plate heated between two walls, with the textbook formula (walls_problem). A plate that cannot
+// lengthen in x (u = 0 on the left and right sides) and is free in y is heated uniformly by dT. The heat
+// that cannot expand it in x becomes compression:
 //     sigma_xx = -E alpha dT / (1 - nu),        sigma_yy = 0,        sigma_xy = 0,
-// e in y la lastra si allunga di epsilon_yy = (1 + nu) alpha dT / (1 - nu) (spostamenti u = 0, v = epsilon_yy y). Con
-// E = 1 e nu = 1/4 e dT = 2 e alpha = 1 sono sigma_xx = -(4/3) 2 = -8/3 e epsilon_yy = 1.25 2 / 0.75 = 10/3. Si prova
-// su sei rettangoli, con quattro materiali (nu = 0 dove sigma_xx = -E alpha dT, l'acciaio e l'alluminio) e due
-// riscaldamenti (+50 e -30 kelvin, quindi trazione se si raffredda): gli spostamenti coincidono con quelli di libro
-// entro 1e-8 volte il piu' grande (il CG si ferma con un residuo di 1e-12, e sulle celle molto schiacciate, 10 x 0.014,
-// l'errore sugli spostamenti arriva a 1e-10), le tensioni entro 1e-6 volte sigma_xx.
+// and in y the plate lengthens by epsilon_yy = (1 + nu) alpha dT / (1 - nu) (displacements u = 0, v = epsilon_yy y).
+// With E = 1 and nu = 1/4 and dT = 2 and alpha = 1 these are sigma_xx = -(4/3) 2 = -8/3 and epsilon_yy = 1.25 2 / 0.75 =
+// 10/3. It is tried on six rectangles, with four materials (nu = 0 where sigma_xx = -E alpha dT, steel and aluminum)
+// and two heatings (+50 and -30 kelvin, hence tension if it is cooled): the displacements coincide with the textbook
+// ones within 1e-8 times the largest (the CG stops with a residual of 1e-12, and on the very flat cells, 10 x 0.014,
+// the error on the displacements reaches 1e-10), the stresses within 1e-6 times sigma_xx.
 TEST(ElasticityStress2d, AHeatedPlateBetweenTwoWallsMatchesTheTextbook) {
     struct Plate {
         double E, nu, alpha;
     };
     const std::vector<Plate> plates = {{1.0, 0.25, 1.0e-3},     // E = 1, nu = 1/4
                                        {1.0, 0.0, 2.0e-3},      // nu = 0: sigma_xx = -E alpha dT
-                                       {210e9, 0.3, 12.0e-6},   // acciaio
-                                       {70e9, 0.33, 23.0e-6}};  // alluminio
+                                       {210e9, 0.3, 12.0e-6},   // steel
+                                       {70e9, 0.33, 23.0e-6}};  // aluminum
 
     for (const Grid& g : sample_grids()) {
         const Mesh2D mesh = rectangle_mesh(g.lx, g.ly, g.nx, g.ny);
@@ -1090,12 +1090,12 @@ TEST(ElasticityStress2d, AHeatedPlateBetweenTwoWallsMatchesTheTextbook) {
     }
 }
 
-// ESEMPIO 196. La stessa lastra, in grande: un quadrato di acciaio di 1 m di lato con 40 x 40 celle
-// (1681 nodi, 3362 gradi di liberta'), E = 210 GPa, nu = 0.3, alpha = 12e-6 per kelvin, scaldato di 100 kelvin e
-// trattenuto fra due pareti. La tensione di libro e' sigma_xx = -E alpha dT / (1 - nu) = -360 MPa (-3.6e8 Pa) in
-// tutti i 3200 triangoli, con sigma_yy = sigma_xy = 0: la funzione deve ritrovarla entro 1e-6 volte il suo valore (il
-// CG fa circa 540 iterazioni, con numeri di K di ordine 1e11). Il tempo e' quello di solve_displacement_2d: una
-// frazione di secondo.
+// EXAMPLE 196. The same plate, large: a steel square of 1 m side with 40 x 40 cells
+// (1681 nodes, 3362 degrees of freedom), E = 210 GPa, nu = 0.3, alpha = 12e-6 per kelvin, heated by 100 kelvin and
+// held between two walls. The textbook stress is sigma_xx = -E alpha dT / (1 - nu) = -360 MPa (-3.6e8 Pa) in
+// all 3200 triangles, with sigma_yy = sigma_xy = 0: the function must find it again within 1e-6 times its value (the
+// CG takes about 540 iterations, with numbers of K of order 1e11). The time is that of solve_displacement_2d: a
+// fraction of a second.
 TEST(ElasticityStress2d, ALargeSteelPlateBetweenTwoWalls) {
     const double E = 210e9;
     const double nu = 0.3;

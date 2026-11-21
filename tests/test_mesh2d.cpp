@@ -11,22 +11,22 @@
 
 #include "Mesh2D.h"
 
-// ---- La maglia 2D: nodi, triangoli, aree -----------------------------------------------
+// ---- The 2D mesh: nodes, triangles, areas ----------------------------------------------
 
-// ESEMPIO 1. Il quadrato unitario diviso in due triangoli dalla diagonale 0-2:
+// EXAMPLE 1. The unit square split into two triangles by the diagonal 0-2:
 //
-//     3 ---------- 2        nodo 0 = (0, 0)     nodo 1 = (1, 0)
-//     |          /  |        nodo 2 = (1, 1)     nodo 3 = (0, 1)
+//     3 ---------- 2        node 0 = (0, 0)     node 1 = (1, 0)
+//     |          /  |        node 2 = (1, 1)     node 3 = (0, 1)
 //     |   T1   /    |
-//     |      /  T0  |        T0 = nodi (0, 1, 2)      T1 = nodi (0, 2, 3)
+//     |      /  T0  |        T0 = nodes (0, 1, 2)      T1 = nodes (0, 2, 3)
 //     |    /        |
 //     |  /          |
 //     0 ---------- 1
 //
-// Area di T0: gli spigoli che escono dal nodo 0 sono (1, 0) e (1, 1), quindi
-//     area = 1/2 * (1*1 - 1*0) = 1/2   (positiva: 0 -> 1 -> 2 gira a sinistra).
-// Area di T1: gli spigoli sono (1, 1) e (0, 1), quindi area = 1/2 * (1*1 - 0*1) = 1/2.
-// Insieme coprono il quadrato, che ha area 1.
+// Area of T0: the edges leaving node 0 are (1, 0) and (1, 1), so
+//     area = 1/2 * (1*1 - 1*0) = 1/2   (positive: 0 -> 1 -> 2 turns left).
+// Area of T1: the edges are (1, 1) and (0, 1), so area = 1/2 * (1*1 - 0*1) = 1/2.
+// Together they cover the square, which has area 1.
 static Mesh2D unit_square() {
     return Mesh2D({0.0, 1.0, 1.0, 0.0}, {0.0, 0.0, 1.0, 1.0}, {{0, 1, 2}, {0, 2, 3}});
 }
@@ -40,8 +40,8 @@ TEST(Mesh2d, SquareInTwoTrianglesMatchesHandComputation) {
     const double ex[4] = {0.0, 1.0, 1.0, 0.0};
     const double ey[4] = {0.0, 0.0, 1.0, 1.0};
     for (std::size_t i = 0; i < 4; ++i) {
-        EXPECT_DOUBLE_EQ(m.x(i), ex[i]) << "nodo " << i;
-        EXPECT_DOUBLE_EQ(m.y(i), ey[i]) << "nodo " << i;
+        EXPECT_DOUBLE_EQ(m.x(i), ex[i]) << "node " << i;
+        EXPECT_DOUBLE_EQ(m.y(i), ey[i]) << "node " << i;
     }
 
     EXPECT_EQ(m.triangle(0), (Triangle{0, 1, 2}));
@@ -50,12 +50,12 @@ TEST(Mesh2d, SquareInTwoTrianglesMatchesHandComputation) {
     EXPECT_NEAR(m.area(1), 0.5, 1e-15);
 }
 
-// ESEMPIO 2. Un quadrilatero irregolare, con i quattro nodi tutti diversi e i due triangoli di area
-// diversa (cosi' si accorge se un'area viene attribuita al triangolo sbagliato):
-//     nodo 0 = (0, 0)   nodo 1 = (4, 0)   nodo 2 = (3, 2)   nodo 3 = (0, 3)
-//     T0 = (0, 1, 2): spigoli da 0 = (4, 0) e (3, 2)  ->  area = 1/2 * (4*2 - 3*0) = 4
-//     T1 = (0, 2, 3): spigoli da 0 = (3, 2) e (0, 3)  ->  area = 1/2 * (3*3 - 0*2) = 4.5
-// Il quadrilatero ha area 8.5: la formula dei lacci, 1/2 * (0*0-4*0 + 4*2-3*0 + 3*3-0*2 + 0*0-0*3) = 17/2.
+// EXAMPLE 2. An irregular quadrilateral, with the four nodes all different and the two triangles of different
+// area (so it is noticed if an area is attributed to the wrong triangle):
+//     node 0 = (0, 0)   node 1 = (4, 0)   node 2 = (3, 2)   node 3 = (0, 3)
+//     T0 = (0, 1, 2): edges from 0 = (4, 0) e (3, 2)  ->  area = 1/2 * (4*2 - 3*0) = 4
+//     T1 = (0, 2, 3): edges from 0 = (3, 2) e (0, 3)  ->  area = 1/2 * (3*3 - 0*2) = 4.5
+// The quadrilateral has area 8.5: the shoelace formula, 1/2 * (0*0-4*0 + 4*2-3*0 + 3*3-0*2 + 0*0-0*3) = 17/2.
 TEST(Mesh2d, IrregularQuadrilateralHasUnequalAreas) {
     Mesh2D m({0.0, 4.0, 3.0, 0.0}, {0.0, 0.0, 2.0, 3.0}, {{0, 1, 2}, {0, 2, 3}});
 
@@ -71,66 +71,66 @@ TEST(Mesh2d, IrregularQuadrilateralHasUnequalAreas) {
     EXPECT_NEAR(m.area(0) + m.area(1), 8.5, 1e-14);
 }
 
-// ESEMPIO 3. Un triangolo qualunque, con nodi (1, 1), (4, 2), (2, 5): spigoli da 0 = (3, 1) e (1, 4),
-// area = 1/2 * (3*4 - 1*1) = 5.5. Lo stesso triangolo, elencato partendo da un altro vertice
-// (1, 2, 0) oppure (2, 0, 1), gira ancora a sinistra e ha la stessa area.
+// EXAMPLE 3. An arbitrary triangle, with nodes (1, 1), (4, 2), (2, 5): edges from 0 = (3, 1) and (1, 4),
+// area = 1/2 * (3*4 - 1*1) = 5.5. The same triangle, listed starting from another vertex
+// (1, 2, 0) or (2, 0, 1), still turns left and has the same area.
 TEST(Mesh2d, AreaDoesNotDependOnWhichCornerComesFirst) {
     const std::vector<double> xs = {1.0, 4.0, 2.0};
     const std::vector<double> ys = {1.0, 2.0, 5.0};
 
     for (const Triangle& t : {Triangle{0, 1, 2}, Triangle{1, 2, 0}, Triangle{2, 0, 1}}) {
         Mesh2D m(xs, ys, std::vector<Triangle>{t});
-        EXPECT_NEAR(m.area(0), 5.5, 1e-14) << "triangolo (" << t[0] << ", " << t[1] << ", " << t[2] << ")";
+        EXPECT_NEAR(m.area(0), 5.5, 1e-14) << "triangle (" << t[0] << ", " << t[1] << ", " << t[2] << ")";
     }
 }
 
-// Le regole del costruttore. Si parte da un triangolo valido, (0, 0) (1, 0) (0, 1), e si rompe una
-// regola alla volta.
+// The constructor rules. We start from a valid triangle, (0, 0) (1, 0) (0, 1), and break one
+// rule at a time.
 TEST(Mesh2d, WrongInputsThrow) {
     const std::vector<double> xs = {0.0, 1.0, 0.0};
     const std::vector<double> ys = {0.0, 0.0, 1.0};
     const std::vector<Triangle> good = {{0, 1, 2}};
     EXPECT_NO_THROW(Mesh2D(xs, ys, good));
 
-    // regola 1: xs e ys con numeri di valori diversi. Il triangolo {0, 1, 2} usa solo nodi che
-    // esistono in tutti e due i vettori e ha area buona: l'unica regola rotta e' la numero 1.
+    // rule 1: xs and ys with different numbers of values. The triangle {0, 1, 2} only uses nodes that
+    // exist in both vectors and has a good area: the only broken rule is number 1.
     EXPECT_THROW(Mesh2D(xs, std::vector<double>{0.0, 0.0, 1.0, 5.0}, good), std::invalid_argument);
     EXPECT_THROW(Mesh2D(std::vector<double>{0.0, 1.0, 0.0, 5.0}, ys, good), std::invalid_argument);
 
-    // regola 2: nessun triangolo
+    // rule 2: no triangle
     EXPECT_THROW(Mesh2D(xs, ys, std::vector<Triangle>{}), std::invalid_argument);
 
-    // regola 3: un nodo che non esiste. Ci sono 3 nodi (0, 1, 2): il numero 3 e' gia' fuori.
-    // Lo si prova in ognuna delle tre posizioni del triangolo.
+    // rule 3: a node that does not exist. There are 3 nodes (0, 1, 2): number 3 is already outside.
+    // It is tried in each of the three positions of the triangle.
     EXPECT_THROW(Mesh2D(xs, ys, std::vector<Triangle>{{3, 1, 2}}), std::invalid_argument);
     EXPECT_THROW(Mesh2D(xs, ys, std::vector<Triangle>{{0, 3, 2}}), std::invalid_argument);
     EXPECT_THROW(Mesh2D(xs, ys, std::vector<Triangle>{{0, 1, 3}}), std::invalid_argument);
     EXPECT_THROW(Mesh2D(xs, ys, std::vector<Triangle>{{0, 1, 99}}), std::invalid_argument);
 
-    // regola 4: triangolo orario. (0, 2, 1) = (0, 0) (0, 1) (1, 0): 1/2 * (0*0 - 1*1) = -1/2.
+    // rule 4: clockwise triangle. (0, 2, 1) = (0, 0) (0, 1) (1, 0): 1/2 * (0*0 - 1*1) = -1/2.
     EXPECT_THROW(Mesh2D(xs, ys, std::vector<Triangle>{{0, 2, 1}}), std::invalid_argument);
-    // regola 4: nodo ripetuto (area 0)
+    // rule 4: repeated node (area 0)
     EXPECT_THROW(Mesh2D(xs, ys, std::vector<Triangle>{{0, 0, 1}}), std::invalid_argument);
-    // regola 4: tre nodi allineati, (0, 0) (1, 1) (2, 2): area 0
+    // rule 4: three collinear nodes, (0, 0) (1, 1) (2, 2): area 0
     EXPECT_THROW(Mesh2D(std::vector<double>{0.0, 1.0, 2.0}, std::vector<double>{0.0, 1.0, 2.0}, good),
                  std::invalid_argument);
-    // regola 4: una coordinata NaN (non e' ne' > 0 ne' <= 0: va rifiutata lo stesso)
+    // rule 4: a NaN coordinate (it is neither > 0 nor <= 0: it must be rejected all the same)
     EXPECT_THROW(Mesh2D(std::vector<double>{0.0, std::nan(""), 0.0}, ys, good), std::invalid_argument);
 
-    // I triangoli vanno controllati TUTTI, non solo il primo: sul quadrato unitario
-    // il secondo triangolo (0, 3, 2) gira a destra.
+    // ALL the triangles must be checked, not only the first: on the unit square
+    // the second triangle (0, 3, 2) turns right.
     EXPECT_NO_THROW(Mesh2D({0.0, 1.0, 1.0, 0.0}, {0.0, 0.0, 1.0, 1.0}, {{0, 1, 2}, {0, 2, 3}}));
     EXPECT_THROW(Mesh2D({0.0, 1.0, 1.0, 0.0}, {0.0, 0.0, 1.0, 1.0}, {{0, 1, 2}, {0, 3, 2}}),
                  std::invalid_argument);
-    // e il secondo triangolo con un nodo che non esiste
+    // and the second triangle with a node that does not exist
     EXPECT_THROW(Mesh2D({0.0, 1.0, 1.0, 0.0}, {0.0, 0.0, 1.0, 1.0}, {{0, 1, 2}, {0, 2, 4}}),
                  std::invalid_argument);
 }
 
-// Con at() un indice sbagliato non legge fuori dai bordi in silenzio: lancia std::out_of_range.
-// (E' il tipo di errore che in element_stress faceva andare in crash i test.)
+// With at() a wrong index does not silently read out of bounds: it throws std::out_of_range.
+// (It is the kind of error that made the tests crash in element_stress.)
 TEST(Mesh2d, AccessorsCheckTheirBounds) {
-    Mesh2D m = unit_square();   // 4 nodi, 2 triangoli
+    Mesh2D m = unit_square();   // 4 nodes, 2 triangles
 
     EXPECT_NO_THROW(m.x(3));
     EXPECT_NO_THROW(m.y(3));
@@ -143,19 +143,19 @@ TEST(Mesh2d, AccessorsCheckTheirBounds) {
     EXPECT_THROW(m.area(2), std::out_of_range);
 }
 
-// ---- Mesh rettangolare strutturata: rectangle_mesh --------------------------------------------
+// ---- Structured rectangular mesh: rectangle_mesh ----------------------------------------------
 //
-// rectangle_mesh(Lx, Ly, nx, ny) divide il rettangolo [0, Lx] x [0, Ly] in nx x ny celle uguali, e
-// ogni cella in 2 triangoli, con la diagonale dall'angolo in basso a sinistra a quello in alto a
-// destra. Le regole di numerazione, per qualunque nx e ny:
-//   - nodi: riga per riga, dal basso verso l'alto; in ogni riga da sinistra a destra. Il nodo della
-//     colonna i (da 0 a nx) e della riga j (da 0 a ny) ha il numero  j*(nx+1) + i  e le coordinate
+// rectangle_mesh(Lx, Ly, nx, ny) divides the rectangle [0, Lx] x [0, Ly] into nx x ny equal cells, and
+// each cell into 2 triangles, with the diagonal from the bottom-left corner to the top-right
+// one. The numbering rules, for any nx and ny:
+//   - nodes: row by row, from bottom to top; in each row from left to right. The node in
+//     column i (from 0 to nx) and row j (from 0 to ny) has number  j*(nx+1) + i  and coordinates
 //     (i*Lx/nx, j*Ly/ny);
-//   - celle: nello stesso ordine (riga per riga, da sinistra a destra). Gli angoli di una cella sono
-//     a = in basso a sinistra, b = in basso a destra, c = in alto a destra, d = in alto a sinistra;
-//   - triangoli: la cella numero k da' i triangoli numero 2k = (a, b, c) e numero 2k+1 = (a, c, d).
+//   - cells: in the same order (row by row, from left to right). The corners of a cell are
+//     a = bottom left, b = bottom right, c = top right, d = top left;
+//   - triangles: cell number k gives triangles number 2k = (a, b, c) and number 2k+1 = (a, c, d).
 
-// ESEMPIO 4. Due celle in orizzontale, una in verticale: Lx = 2, Ly = 1, nx = 2, ny = 1.
+// EXAMPLE 4. Two cells horizontally, one vertically: Lx = 2, Ly = 1, nx = 2, ny = 1.
 //
 //     3 --------- 4 --------- 5
 //     |        /  |        /  |
@@ -164,10 +164,10 @@ TEST(Mesh2d, AccessorsCheckTheirBounds) {
 //     |  /        |  /        |
 //     0 --------- 1 --------- 2
 //
-// Nodi: 0 = (0, 0)  1 = (1, 0)  2 = (2, 0)  3 = (0, 1)  4 = (1, 1)  5 = (2, 1).
-// Cella 0: (a, b, c, d) = (0, 1, 4, 3), quindi T0 = (0, 1, 4) e T1 = (0, 4, 3).
-// Cella 1: (a, b, c, d) = (1, 2, 5, 4), quindi T2 = (1, 2, 5) e T3 = (1, 5, 4).
-// Ogni triangolo e' meta' di un quadrato di lato 1, quindi ha area 1/2; in tutto 4 * 1/2 = 2 = Lx*Ly.
+// Nodes: 0 = (0, 0)  1 = (1, 0)  2 = (2, 0)  3 = (0, 1)  4 = (1, 1)  5 = (2, 1).
+// Cell 0: (a, b, c, d) = (0, 1, 4, 3), so T0 = (0, 1, 4) and T1 = (0, 4, 3).
+// Cell 1: (a, b, c, d) = (1, 2, 5, 4), so T2 = (1, 2, 5) and T3 = (1, 5, 4).
+// Each triangle is half of a square of side 1, so it has area 1/2; in total 4 * 1/2 = 2 = Lx*Ly.
 TEST(Mesh2d, RectangleTwoByOneMatchesHandComputation) {
     Mesh2D m = rectangle_mesh(2.0, 1.0, 2, 1);
 
@@ -177,8 +177,8 @@ TEST(Mesh2d, RectangleTwoByOneMatchesHandComputation) {
     const double ex[6] = {0.0, 1.0, 2.0, 0.0, 1.0, 2.0};
     const double ey[6] = {0.0, 0.0, 0.0, 1.0, 1.0, 1.0};
     for (std::size_t i = 0; i < 6; ++i) {
-        EXPECT_NEAR(m.x(i), ex[i], 1e-14) << "nodo " << i;
-        EXPECT_NEAR(m.y(i), ey[i], 1e-14) << "nodo " << i;
+        EXPECT_NEAR(m.x(i), ex[i], 1e-14) << "node " << i;
+        EXPECT_NEAR(m.y(i), ey[i], 1e-14) << "node " << i;
     }
 
     EXPECT_EQ(m.triangle(0), (Triangle{0, 1, 4}));
@@ -187,29 +187,29 @@ TEST(Mesh2d, RectangleTwoByOneMatchesHandComputation) {
     EXPECT_EQ(m.triangle(3), (Triangle{1, 5, 4}));
 
     for (std::size_t e = 0; e < 4; ++e) {
-        EXPECT_NEAR(m.area(e), 0.5, 1e-14) << "triangolo " << e;
+        EXPECT_NEAR(m.area(e), 0.5, 1e-14) << "triangle " << e;
     }
 }
 
-// ESEMPIO 5. Celle non quadrate e nx diverso da ny: Lx = 3, Ly = 1, nx = 3, ny = 2.
-// I passi sono dx = 3/3 = 1 e dy = 1/2 = 0.5. Ogni riga ha nx+1 = 4 nodi, quindi il nodo
-// della colonna i e della riga j e' il numero 4j + i:
+// EXAMPLE 5. Non-square cells and nx different from ny: Lx = 3, Ly = 1, nx = 3, ny = 2.
+// The grid steps are dx = 3/3 = 1 and dy = 1/2 = 0.5. Each row has nx+1 = 4 nodes, so the node
+// in column i and row j is number 4j + i:
 //
-//     8 --------- 9 -------- 10 -------- 11        riga j = 2   y = 1
+//     8 --------- 9 -------- 10 -------- 11        row j = 2   y = 1
 //     |        /  |        /  |        /  |
 //     |  T7  /    |  T9  /    | T11  /    |
 //     |    /  T6  |    /  T8  |    /  T10 |
 //     |  /        |  /        |  /        |
-//     4 --------- 5 --------- 6 --------- 7        riga j = 1   y = 0.5
+//     4 --------- 5 --------- 6 --------- 7        row j = 1   y = 0.5
 //     |        /  |        /  |        /  |
 //     |  T1  /    |  T3  /    |  T5  /    |
 //     |    /  T0  |    /  T2  |    /  T4  |
 //     |  /        |  /        |  /        |
-//     0 --------- 1 --------- 2 --------- 3        riga j = 0   y = 0
+//     0 --------- 1 --------- 2 --------- 3        row j = 0   y = 0
 //
-// Le celle sono 6, riga per riga. La cella 3 (colonna 0, riga 1) ha (a, b, c, d) = (4, 5, 9, 8),
-// quindi T6 = (4, 5, 9) e T7 = (4, 9, 8). L'ultima, la cella 5, ha (6, 7, 11, 10), quindi
-// T10 = (6, 7, 11) e T11 = (6, 11, 10). Ogni triangolo ha area 1/2 * 1 * 0.5 = 0.25.
+// There are 6 cells, row by row. Cell 3 (column 0, row 1) has (a, b, c, d) = (4, 5, 9, 8),
+// so T6 = (4, 5, 9) and T7 = (4, 9, 8). The last one, cell 5, has (6, 7, 11, 10), so
+// T10 = (6, 7, 11) and T11 = (6, 11, 10). Each triangle has area 1/2 * 1 * 0.5 = 0.25.
 TEST(Mesh2d, RectangleWithUnequalSidesPlacesTheNodesCorrectly) {
     Mesh2D m = rectangle_mesh(3.0, 1.0, 3, 2);
 
@@ -219,8 +219,8 @@ TEST(Mesh2d, RectangleWithUnequalSidesPlacesTheNodesCorrectly) {
     const double ex[12] = {0.0, 1.0, 2.0, 3.0, 0.0, 1.0, 2.0, 3.0, 0.0, 1.0, 2.0, 3.0};
     const double ey[12] = {0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5, 1.0, 1.0, 1.0, 1.0};
     for (std::size_t i = 0; i < 12; ++i) {
-        EXPECT_NEAR(m.x(i), ex[i], 1e-14) << "nodo " << i;
-        EXPECT_NEAR(m.y(i), ey[i], 1e-14) << "nodo " << i;
+        EXPECT_NEAR(m.x(i), ex[i], 1e-14) << "node " << i;
+        EXPECT_NEAR(m.y(i), ey[i], 1e-14) << "node " << i;
     }
 
     EXPECT_EQ(m.triangle(0), (Triangle{0, 1, 5}));
@@ -231,11 +231,11 @@ TEST(Mesh2d, RectangleWithUnequalSidesPlacesTheNodesCorrectly) {
     EXPECT_EQ(m.triangle(11), (Triangle{6, 11, 10}));
 
     for (std::size_t e = 0; e < 12; ++e) {
-        EXPECT_NEAR(m.area(e), 0.25, 1e-14) << "triangolo " << e;
+        EXPECT_NEAR(m.area(e), 0.25, 1e-14) << "triangle " << e;
     }
 }
 
-// Conta, per ogni lato (la coppia dei suoi due nodi, in ordine crescente), in quanti triangoli compare.
+// Count, for each side (the pair of its two nodes, in increasing order), in how many triangles it appears.
 static std::map<std::pair<std::size_t, std::size_t>, int> edge_counts(const Mesh2D& m) {
     std::map<std::pair<std::size_t, std::size_t>, int> counts;
     for (std::size_t e = 0; e < m.num_triangles(); ++e) {
@@ -252,15 +252,15 @@ static std::map<std::pair<std::size_t, std::size_t>, int> edge_counts(const Mesh
     return counts;
 }
 
-// ESEMPIO 6. Cose che devono valere per QUALUNQUE rettangolo e QUALUNQUE numero di celle, anche dove
-// non si puo' calcolare tutto a mano. Con dx = Lx/nx e dy = Ly/ny:
-//   - i nodi sono (nx+1)(ny+1) e i triangoli 2 nx ny;
-//   - ogni triangolo e' meta' di una cella: area 1/2 dx dy. Quindi insieme coprono il rettangolo
-//     senza buchi e senza sovrapposizioni: somma delle aree = Lx Ly;
-//   - i nodi stanno dentro il rettangolo e ne toccano tutti e quattro i lati;
-//   - la mesh e' "conforme": ogni lato appartiene a 2 triangoli (lato interno) oppure a 1 (lato sul
-//     bordo), mai a 3 o piu'. I lati di bordo sono 2 (nx + ny); i lati in tutto sono
-//     nx (ny+1) orizzontali + ny (nx+1) verticali + nx ny diagonali = 3 nx ny + nx + ny.
+// EXAMPLE 6. Things that must hold for ANY rectangle and ANY number of cells, even where
+// not everything can be computed by hand. With dx = Lx/nx and dy = Ly/ny:
+//   - the nodes are (nx+1)(ny+1) and the triangles 2 nx ny;
+//   - each triangle is half a cell: area 1/2 dx dy. So together they cover the rectangle
+//     with no holes and no overlaps: sum of the areas = Lx Ly;
+//   - the nodes lie inside the rectangle and touch all four of its sides;
+//   - the mesh is "conforming": each side belongs to 2 triangles (interior side) or to 1 (side on the
+//     boundary), never to 3 or more. The boundary sides are 2 (nx + ny); the sides in total are
+//     nx (ny+1) horizontal + ny (nx+1) vertical + nx ny diagonal = 3 nx ny + nx + ny.
 TEST(Mesh2d, RectangleCoversTheDomainExactlyOnce) {
     struct Case {
         double lx;
@@ -281,7 +281,7 @@ TEST(Mesh2d, RectangleCoversTheDomainExactlyOnce) {
 
         double total_area = 0.0;
         for (std::size_t e = 0; e < m.num_triangles(); ++e) {
-            EXPECT_NEAR(m.area(e), 0.5 * dx * dy, 1e-12 * dx * dy) << "triangolo " << e;
+            EXPECT_NEAR(m.area(e), 0.5 * dx * dy, 1e-12 * dx * dy) << "triangle " << e;
             total_area += m.area(e);
         }
         EXPECT_NEAR(total_area, c.lx * c.ly, 1e-12 * c.lx * c.ly);
@@ -305,8 +305,8 @@ TEST(Mesh2d, RectangleCoversTheDomainExactlyOnce) {
         std::size_t boundary_edges = 0;
         for (const auto& entry : counts) {
             const int times = entry.second;
-            EXPECT_TRUE(times == 1 || times == 2) << "il lato (" << entry.first.first << ", "
-                                                   << entry.first.second << ") sta in " << times << " triangoli";
+            EXPECT_TRUE(times == 1 || times == 2) << "the side (" << entry.first.first << ", "
+                                                   << entry.first.second << ") is in " << times << " triangles";
             if (times == 1) {
                 ++boundary_edges;
             }
@@ -316,7 +316,7 @@ TEST(Mesh2d, RectangleCoversTheDomainExactlyOnce) {
     }
 }
 
-// Ingressi sbagliati: lati non positivi o NaN, nessuna cella.
+// Wrong inputs: non-positive sides or NaN, no cells.
 TEST(Mesh2d, RectangleWrongInputsThrow) {
     EXPECT_NO_THROW(rectangle_mesh(1.0, 1.0, 1, 1));
 
@@ -324,8 +324,8 @@ TEST(Mesh2d, RectangleWrongInputsThrow) {
     EXPECT_THROW(rectangle_mesh(1.0, 0.0, 2, 2), std::invalid_argument);
     EXPECT_THROW(rectangle_mesh(-1.0, 1.0, 2, 2), std::invalid_argument);
     EXPECT_THROW(rectangle_mesh(1.0, -1.0, 2, 2), std::invalid_argument);
-    // Due lati negativi insieme darebbero una mesh "valida" (nel terzo quadrante), con tutti i
-    // triangoli antiorari. Ma un rettangolo con lati negativi non ha senso: va rifiutato.
+    // Two negative sides together would give a "valid" mesh (in the third quadrant), with all the
+    // triangles counter-clockwise. But a rectangle with negative sides makes no sense: it must be rejected.
     EXPECT_THROW(rectangle_mesh(-1.0, -1.0, 2, 2), std::invalid_argument);
     EXPECT_THROW(rectangle_mesh(std::nan(""), 1.0, 2, 2), std::invalid_argument);
     EXPECT_THROW(rectangle_mesh(1.0, std::nan(""), 2, 2), std::invalid_argument);
@@ -334,22 +334,22 @@ TEST(Mesh2d, RectangleWrongInputsThrow) {
     EXPECT_THROW(rectangle_mesh(1.0, 1.0, 2, 0), std::invalid_argument);
 }
 
-// ---- Nodi di bordo: boundary_nodes -------------------------------------------------------------
+// ---- Boundary nodes: boundary_nodes ------------------------------------------------------------
 //
-// boundary_nodes(mesh) restituisce i numeri dei nodi che stanno sul bordo della mesh, in ordine
-// crescente e ognuno una volta sola. Un nodo e' di bordo se e' un estremo di un lato di bordo, e un
-// lato (il lato di un triangolo) e' di bordo se appartiene a UN SOLO triangolo: un lato interno ha un
-// triangolo da ciascuna parte, quindi ne ha due. Il criterio non guarda le coordinate, quindi vale per
-// qualunque forma, anche con dei buchi.
+// boundary_nodes(mesh) returns the numbers of the nodes that lie on the boundary of the mesh, in
+// increasing order and each one only once. A node is a boundary node if it is an endpoint of a boundary side, and a
+// side (the side of a triangle) is a boundary side if it belongs to ONE SINGLE triangle: an interior side has a
+// triangle on each side, so it has two. The criterion does not look at the coordinates, so it holds for
+// any shape, even with holes.
 
-// ESEMPIO 7. Il quadrato unitario dell'ESEMPIO 1, a mano. I lati dei due triangoli T0 = (0, 1, 2) e
-// T1 = (0, 2, 3), e in quanti triangoli compaiono:
-//     (0, 1): 1     (1, 2): 1     (0, 2): 2  <- la diagonale e' interna     (2, 3): 1     (0, 3): 1
-// I lati di bordo sono i quattro con 1, e toccano i nodi 0, 1, 2, 3: sono tutti di bordo.
+// EXAMPLE 7. The unit square of EXAMPLE 1, by hand. The sides of the two triangles T0 = (0, 1, 2) and
+// T1 = (0, 2, 3), and in how many triangles they appear:
+//     (0, 1): 1     (1, 2): 1     (0, 2): 2  <- the diagonal is interior     (2, 3): 1     (0, 3): 1
+// The boundary sides are the four with 1, and they touch nodes 0, 1, 2, 3: all of them are boundary nodes.
 //
-// Nelle mesh dei rettangoli un nodo e' interno se non sta sul perimetro. Con 2 x 2 celle (9 nodi,
-// numerati riga per riga) l'unico interno e' il nodo 4, al centro. Con 3 x 2 celle (12 nodi) sono
-// interni il 5 e il 6, cioe' le colonne 1 e 2 della riga 1.
+// In the rectangle meshes a node is interior if it is not on the perimeter. With 2 x 2 cells (9 nodes,
+// numbered row by row) the only interior one is node 4, at the center. With 3 x 2 cells (12 nodes) the
+// interior ones are 5 and 6, i.e. columns 1 and 2 of row 1.
 TEST(Mesh2d, BoundaryNodesOfSmallMeshesMatchHandComputation) {
     EXPECT_EQ(boundary_nodes(unit_square()), (std::vector<std::size_t>{0, 1, 2, 3}));
 
@@ -359,35 +359,35 @@ TEST(Mesh2d, BoundaryNodesOfSmallMeshesMatchHandComputation) {
               (std::vector<std::size_t>{0, 1, 2, 3, 4, 7, 8, 9, 10, 11}));
 }
 
-// ESEMPIO 8. Un triangolo con un nodo dentro. Non e' un rettangolo, quindi niente scorciatoie con le
-// coordinate. Nodi: 0 = (0, 0), 1 = (3, 0), 2 = (0, 3) e 3 = (1, 1), che sta dentro. Tre triangoli
-// attorno al nodo 3: (0, 1, 3), (1, 2, 3), (2, 0, 3), ciascuno di area 3/2 (in tutto 9/2, come il
-// triangolo grande). I lati (0, 1), (1, 2), (2, 0) sono in un solo triangolo; i tre lati che escono
-// dal nodo 3 sono in due. Quindi i nodi di bordo sono 0, 1, 2 e il nodo 3 e' interno.
+// EXAMPLE 8. A triangle with a node inside. It is not a rectangle, so no shortcuts with the
+// coordinates. Nodes: 0 = (0, 0), 1 = (3, 0), 2 = (0, 3) and 3 = (1, 1), which is inside. Three triangles
+// around node 3: (0, 1, 3), (1, 2, 3), (2, 0, 3), each of area 3/2 (in total 9/2, like the
+// large triangle). The sides (0, 1), (1, 2), (2, 0) are in one triangle only; the three sides leaving
+// node 3 are in two. So the boundary nodes are 0, 1, 2 and node 3 is interior.
 TEST(Mesh2d, BoundaryNodesOfATriangleWithAnInteriorNode) {
     Mesh2D m({0.0, 3.0, 0.0, 1.0}, {0.0, 0.0, 3.0, 1.0}, {{0, 1, 3}, {1, 2, 3}, {2, 0, 3}});
 
-    EXPECT_NEAR(m.area(0) + m.area(1) + m.area(2), 4.5, 1e-14);   // la mesh e' quella giusta
+    EXPECT_NEAR(m.area(0) + m.area(1) + m.area(2), 4.5, 1e-14);   // the mesh is the right one
     EXPECT_EQ(boundary_nodes(m), (std::vector<std::size_t>{0, 1, 2}));
 }
 
-// ESEMPIO 9. Un quadrato 3 x 3 con un buco quadrato 1 x 1 al centro: i nodi 0..3 sono sul quadrato
-// esterno e 4..7 su quello interno, tutti e due numerati in senso antiorario.
+// EXAMPLE 9. A 3 x 3 square with a 1 x 1 square hole at the center: nodes 0..3 are on the outer
+// square and 4..7 on the inner one, both numbered counter-clockwise.
 //
 //     3 ----------------- 2
 //     | \               / |
 //     |   7 --------- 6   |
 //     |   |           |   |
-//     |   |   (buco)  |   |
+//     |   |   (hole)  |   |
 //     |   |           |   |
 //     |   4 --------- 5   |
 //     | /               \ |
 //     0 ----------------- 1
 //
-// La corona e' fatta di 4 trapezi, ognuno diviso in 2 triangoli: (0, 1, 5) (0, 5, 4) - (1, 2, 6)
-// (1, 6, 5) - (2, 3, 7) (2, 7, 6) - (3, 0, 4) (3, 4, 7). L'area in tutto e' 9 - 1 = 8. Anche i lati
-// del buco hanno un solo triangolo (dall'altra parte non c'e' niente): i nodi 4, 5, 6, 7 sono di
-// bordo come gli altri.
+// The ring is made of 4 trapezoids, each split into 2 triangles: (0, 1, 5) (0, 5, 4) - (1, 2, 6)
+// (1, 6, 5) - (2, 3, 7) (2, 7, 6) - (3, 0, 4) (3, 4, 7). The total area is 9 - 1 = 8. The sides
+// of the hole also have a single triangle (there is nothing on the other side): nodes 4, 5, 6, 7 are
+// boundary nodes like the others.
 TEST(Mesh2d, BoundaryNodesIncludeTheOnesAroundAHole) {
     Mesh2D m({0.0, 3.0, 3.0, 0.0, 1.0, 2.0, 2.0, 1.0}, {0.0, 0.0, 3.0, 3.0, 1.0, 1.0, 2.0, 2.0},
              {{0, 1, 5}, {0, 5, 4}, {1, 2, 6}, {1, 6, 5}, {2, 3, 7}, {2, 7, 6}, {3, 0, 4}, {3, 4, 7}});
@@ -396,16 +396,16 @@ TEST(Mesh2d, BoundaryNodesIncludeTheOnesAroundAHole) {
     for (std::size_t e = 0; e < m.num_triangles(); ++e) {
         total_area += m.area(e);
     }
-    EXPECT_NEAR(total_area, 8.0, 1e-14);   // la mesh e' quella giusta
+    EXPECT_NEAR(total_area, 8.0, 1e-14);   // the mesh is the right one
 
     EXPECT_EQ(boundary_nodes(m), (std::vector<std::size_t>{0, 1, 2, 3, 4, 5, 6, 7}));
 }
 
-// ESEMPIO 10. Sui rettangoli c'e' un secondo modo, indipendente, per sapere quali nodi sono di bordo:
-// quelli che toccano uno dei quattro lati, cioe' con x = 0, x = Lx, y = 0 oppure y = Ly. Il risultato
-// di boundary_nodes, che guarda solo i triangoli, deve coincidere con questo per qualunque dimensione.
-// In piu': i nodi di bordo di nx x ny celle sono 2 (nx + ny), e la lista e' in ordine strettamente
-// crescente (quindi senza ripetizioni).
+// EXAMPLE 10. On rectangles there is a second, independent way to know which nodes are on the boundary:
+// those that touch one of the four sides, i.e. with x = 0, x = Lx, y = 0 or y = Ly. The result
+// of boundary_nodes, which looks only at the triangles, must coincide with this for any size.
+// In addition: the boundary nodes of nx x ny cells are 2 (nx + ny), and the list is in strictly
+// increasing order (hence without repetitions).
 TEST(Mesh2d, BoundaryNodesMatchTheGeometryOfRectangles) {
     struct Case {
         double lx;
@@ -435,7 +435,7 @@ TEST(Mesh2d, BoundaryNodesMatchTheGeometryOfRectangles) {
         EXPECT_EQ(found, expected);
         EXPECT_EQ(found.size(), 2 * (c.nx + c.ny));
         for (std::size_t k = 1; k < found.size(); ++k) {
-            EXPECT_LT(found[k - 1], found[k]) << "posizione " << k;
+            EXPECT_LT(found[k - 1], found[k]) << "position " << k;
         }
     }
 }
