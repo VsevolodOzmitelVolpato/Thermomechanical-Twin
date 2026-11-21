@@ -1,0 +1,10 @@
+# Settings of ruff, the linter and formatter of the Python code (python/ and scripts/).
+# Check:  ruff check .      Fix what can be fixed automatically:  ruff check --fix .      Format:  ruff format .
+line-length = 120
+target-version = "py313"
+src = ["python"]
+
+[lint]
+select = ["E", "F", "W", "I"]
+# the formatter wraps the code; a long message or comment is left to the author
+ignore = ["E501"]
